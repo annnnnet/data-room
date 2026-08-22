@@ -17,7 +17,13 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e:db:up": "docker compose -f ../../docker-compose.yml up -d --wait",
+    "test:e2e:db:down": "docker compose -f ../../docker-compose.yml down",
+    "test:e2e:db:migrate": "node scripts/migrate-test-db.js",
+    "test:e2e:db:verify": "node scripts/verify-test-db.js",
+    "test:e2e:setup": "pnpm run test:e2e:db:up && pnpm run test:e2e:db:migrate && pnpm run test:e2e:db:verify",
+    "test:e2e:full": "pnpm run test:e2e:setup && pnpm run test:e2e"
   },
   "dependencies": {
     "@data-room/shared": "workspace:*",

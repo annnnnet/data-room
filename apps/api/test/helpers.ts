@@ -39,6 +39,31 @@ function loadEnv() {
 }
 
 /**
+ * The e2e suite must never run against the shared Supabase database — a
+ * crashed worker there leaks rows into real application data. Once loadEnv()
+ * has populated process.env from .env, redirect DATABASE_URL/DIRECT_URL to
+ * the local test-database URLs *before* PrismaService (or anything else)
+ * constructs a PrismaClient, since Prisma reads those vars at construction
+ * time, not per-query.
+ *
+ * If DATABASE_URL_TEST is missing, fail loudly instead of silently falling
+ * back to whatever DATABASE_URL already points at (Supabase, in dev).
+ */
+function useTestDatabase() {
+  const testUrl = process.env.DATABASE_URL_TEST;
+  if (!testUrl) {
+    throw new Error(
+      'DATABASE_URL_TEST is not set. The e2e suite refuses to fall back to ' +
+        'DATABASE_URL (the shared Supabase database). Start the local test ' +
+        'database with `pnpm --filter @data-room/api test:e2e:db:up` and set ' +
+        'DATABASE_URL_TEST / DIRECT_URL_TEST in apps/api/.env (see .env.example).',
+    );
+  }
+  process.env.DATABASE_URL = testUrl;
+  process.env.DIRECT_URL = process.env.DIRECT_URL_TEST ?? testUrl;
+}
+
+/**
  * Stub that stands in for the real AuthGuard in e2e tests: reads
  * `x-test-user` / `x-share-token` headers directly into a Principal instead
  * of verifying a Supabase JWT, so tests never need to mint real tokens.
@@ -99,6 +124,7 @@ export interface TestApp {
 
 export async function createTestApp(): Promise<TestApp> {
   loadEnv();
+  useTestDatabase();
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideGuard(AuthGuard)

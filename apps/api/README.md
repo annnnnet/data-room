@@ -96,3 +96,58 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+## E2E test database
+
+The e2e suite (`pnpm test:e2e`) runs against a dedicated local Postgres
+container, never against the shared Supabase database used in dev/prod.
+`test/helpers.ts` refuses to run — throwing a clear error instead of
+silently falling back to `DATABASE_URL` — if `DATABASE_URL_TEST` isn't set.
+
+### Prerequisites
+
+- Docker Desktop (or another Docker-compatible engine) running locally.
+
+### One-time setup
+
+1. Copy `apps/api/.env.example` to `apps/api/.env` and fill in `DATABASE_URL`
+   / `DIRECT_URL` (Supabase, for the app itself) — `DATABASE_URL_TEST` /
+   `DIRECT_URL_TEST` already point at the local container and normally don't
+   need to change.
+2. Bring up the container and apply migrations:
+
+   ```bash
+   pnpm --filter @data-room/api test:e2e:setup
+   ```
+
+   This starts Postgres 15 in Docker (`docker-compose.yml` at the repo
+   root, published on **host port 5434** — 5432/5433 are often already
+   taken), waits for it to report healthy, runs `prisma migrate deploy`
+   against `DATABASE_URL_TEST`, and verifies the `pg_trgm` extension and
+   the two raw-SQL indexes (`node_parent_name_unique`, `node_name_trgm`)
+   from the init migration actually exist.
+
+### Running the suite
+
+```bash
+pnpm --filter @data-room/api test:e2e          # just the tests (container must already be up + migrated)
+pnpm --filter @data-room/api test:e2e:full      # up + migrate + verify + run tests, in one go
+```
+
+Equivalent scripts exist at the repo root: `pnpm test:e2e:db:up` /
+`pnpm test:e2e:db:down` / `pnpm test:e2e`.
+
+### Other useful scripts
+
+| Script | What it does |
+| --- | --- |
+| `test:e2e:db:up` | `docker compose up -d --wait` for the test database |
+| `test:e2e:db:down` | Stops and removes the test database container |
+| `test:e2e:db:migrate` | Runs `prisma migrate deploy` against `DATABASE_URL_TEST` |
+| `test:e2e:db:verify` | Confirms `pg_trgm` + both raw-SQL indexes exist |
+| `test:e2e:setup` | up + migrate + verify |
+| `test:e2e:full` | setup + run the e2e suite |
+
+The container's credentials (`data_room_test` / `data_room_test`,
+database `data_room_test`) are local-only throwaway values — safe to keep
+in `docker-compose.yml` and `.env.example`.

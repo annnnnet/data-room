@@ -1,0 +1,21 @@
+services:
+  db-test:
+    image: postgres:15
+    container_name: data-room-db-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: data_room_test
+      POSTGRES_PASSWORD: data_room_test
+      POSTGRES_DB: data_room_test
+    ports:
+      - '5434:5432'
+    volumes:
+      - data-room-db-test:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U data_room_test -d data_room_test']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  data-room-db-test:
