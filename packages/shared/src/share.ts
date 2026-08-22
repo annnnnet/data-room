@@ -23,6 +23,16 @@ export const createShareSchema = z.object({
 });
 export type CreateShareInput = z.infer<typeof createShareSchema>;
 
+/**
+ * The token is the entire credential for an anonymous visitor, so it must be
+ * present and a non-empty string. Prisma treats an `undefined` filter as
+ * "omit this condition", which would turn a missing token into "match the
+ * first live share in the database" — see AccessService for the same hazard.
+ */
+export const shareContextQuerySchema = z.object({
+  token: z.string().min(1),
+});
+
 export const shareContextSchema = z.object({
   rootNodeId: z.string(),
   nodeName: z.string(),

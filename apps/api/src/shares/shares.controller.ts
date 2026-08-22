@@ -1,5 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { createShareSchema, type CreateShareInput } from '@data-room/shared';
+import {
+  createShareSchema,
+  shareContextQuerySchema,
+  type CreateShareInput,
+} from '@data-room/shared';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentPrincipal } from '../auth/principal.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -32,7 +36,7 @@ export class SharesController {
 
   /** Backs the public /s/[token] landing page — no auth, just the token. */
   @Get('shares/context')
-  context(@Query('token') token: string) {
-    return this.shares.context(token);
+  context(@Query(new ZodValidationPipe(shareContextQuerySchema)) query: { token: string }) {
+    return this.shares.context(query.token);
   }
 }

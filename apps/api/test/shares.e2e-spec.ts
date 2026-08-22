@@ -141,4 +141,24 @@ describe('sharing', () => {
     const res = await app.asAnonymous().get('/api/shares/context?token=not-a-real-token').expect(404);
     expect(res.body.code).toBe('SHARE_REVOKED');
   });
+
+  // Prisma drops an `undefined` filter, so an unvalidated missing token turns
+  // `findFirst({ where: { token } })` into "any live share in the database" —
+  // an anonymous cross-tenant disclosure of node ids and room names.
+  it('rejects a context request with no token instead of matching any live share', async () => {
+    const { nested } = await seedTree(app, { nested: ['Legal', 'Contracts'] });
+    await app.asOwner().post(`/api/nodes/${nested}/shares`).send({ kind: 'LINK' }).expect(201);
+
+    for (const url of [
+      '/api/shares/context',
+      '/api/shares/context?token=',
+      '/api/shares/context?token[]=a&token[]=b',
+    ]) {
+      const res = await app.asAnonymous().get(url);
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('VALIDATION_FAILED');
+      expect(res.body.rootNodeId).toBeUndefined();
+      expect(JSON.stringify(res.body)).not.toContain('Acme');
+    }
+  });
 });
