@@ -5,6 +5,8 @@ import { AuthModule } from './auth/auth.module';
 import { AccessModule } from './access/access.module';
 import { NodesModule } from './nodes/nodes.module';
 import { DataRoomsModule } from './data-rooms/data-rooms.module';
+import { StorageModule } from './storage/storage.module';
+import { FilesModule } from './files/files.module';
 
 @Module({
   imports: [
@@ -14,6 +16,8 @@ import { DataRoomsModule } from './data-rooms/data-rooms.module';
     AccessModule,
     NodesModule,
     DataRoomsModule,
+    StorageModule,
+    FilesModule,
   ],
   controllers: [],
   providers: [],

@@ -9,6 +9,7 @@ import { AuthGuard } from '../src/auth/auth.guard';
 import { AllExceptionsFilter } from '../src/common/api-error';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { buildPath } from '../src/common/path.util';
+import { StorageService } from '../src/storage/storage.service';
 
 /**
  * `apps/api/.env` is never loaded automatically for a plain `jest --config
@@ -85,6 +86,27 @@ class TestAuthGuard implements CanActivate {
   }
 }
 
+/**
+ * Stands in for the real StorageService in e2e tests: the e2e suite runs
+ * against local Postgres only and must never call out to Supabase Storage.
+ * Keeps the exact same interface as the real service (same method
+ * signatures, deterministic-but-realistic-looking URLs) so substituting it
+ * doesn't prove anything false about the code under test — in particular
+ * the returned upload URL contains "signed", which the e2e spec asserts on.
+ */
+@Injectable()
+class FakeStorageService {
+  storageKey(dataRoomId: string, versionId: string) {
+    return `${dataRoomId}/${versionId}`;
+  }
+  async signedUploadUrl(key: string): Promise<string> {
+    return `https://fake.storage.test/upload/${encodeURIComponent(key)}?signed=1`;
+  }
+  async signedDownloadUrl(key: string, filename: string, disposition: 'inline' | 'attachment') {
+    return `https://fake.storage.test/download/${encodeURIComponent(key)}?signed=1&disposition=${disposition}&filename=${encodeURIComponent(filename)}`;
+  }
+}
+
 type Agent = {
   get: (url: string) => request.Test;
   post: (url: string) => request.Test;
@@ -129,6 +151,8 @@ export async function createTestApp(): Promise<TestApp> {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideGuard(AuthGuard)
     .useClass(TestAuthGuard)
+    .overrideProvider(StorageService)
+    .useClass(FakeStorageService)
     .compile();
 
   const nest = moduleRef.createNestApplication();

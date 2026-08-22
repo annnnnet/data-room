@@ -81,7 +81,16 @@ export class NodesService {
       : {};
 
     const rows = await this.prisma.node.findMany({
-      where: { parentId: id, deletedAt: null, ...after },
+      where: {
+        parentId: id,
+        deletedAt: null,
+        // A FILE with no currentVersionId is a half-uploaded (PENDING) file
+        // and must stay invisible to every caller, owner and share alike.
+        // Combined with the cursor's own OR (when present) via AND — both
+        // objects use the `OR` key, so they must not be spread into the
+        // same where clause or one would silently clobber the other.
+        AND: [{ OR: [{ type: 'FOLDER' }, { type: 'FILE', currentVersionId: { not: null } }] }, after],
+      },
       orderBy: [{ type: 'asc' }, { name: 'asc' }, { id: 'asc' }],
       take: limit + 1,
       include: INCLUDE,
