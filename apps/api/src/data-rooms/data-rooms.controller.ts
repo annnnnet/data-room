@@ -8,7 +8,7 @@ import { DataRoomsService } from './data-rooms.service';
 import type { Principal } from '../auth/auth.guard';
 
 function requireUser(p: Principal): string {
-  if (p.kind !== 'user') throw new AppError('FORBIDDEN', 'Sign in required', 401);
+  if (p.kind !== 'user') throw new AppError('UNAUTHORIZED', 'Sign in required', 401);
   return p.userId;
 }
 

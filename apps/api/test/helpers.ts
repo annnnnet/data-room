@@ -92,6 +92,8 @@ export interface TestApp {
   asUser(userId: string): Agent;
   asStranger(): Agent;
   asLink(token: string): Agent;
+  /** No auth header at all — an anonymous caller, not even a stranger id. */
+  asAnonymous(): Agent;
   close(): Promise<void>;
 }
 
@@ -123,18 +125,35 @@ export async function createTestApp(): Promise<TestApp> {
     // but no relationship to this room" path, not just "anonymous".
     asStranger: () => agentWithHeader(server, { 'x-test-user': randomUUID() }),
     asLink: (token: string) => agentWithHeader(server, { 'x-share-token': token }),
+    asAnonymous: () => agentWithHeader(server, {}),
     close: async () => {
-      // Room-scoped cleanup only — never touch tables globally, and never
-      // touch the seeded demo room, which isn't in either list. Rooms first:
-      // their cascade removes the Node/FileVersion/Share rows that
-      // reference these owner users, so the user rows can be deleted after.
-      if (app._roomIds.length > 0) {
-        await prisma.dataRoom.deleteMany({ where: { id: { in: app._roomIds } } });
+      // User-scoped cleanup only — never touch tables globally, and never
+      // touch the seeded demo room, which isn't owned by any tracked user.
+      // Delete every room owned by a tracked test user (not just the rooms
+      // seedTree() itself created — a test may also POST /api/data-rooms
+      // and create an untracked room under a tracked owner) before deleting
+      // the users, since Node.createdById is ON DELETE RESTRICT against
+      // User and a room's cascade removes its Node/FileVersion/Share rows.
+      // Run inside try/finally so nest.close() always happens, and let a
+      // cleanup failure surface loudly (fail the test) instead of being
+      // swallowed — a silently-eaten failure is exactly what leaks rows.
+      try {
+        if (app._userIds.length > 0) {
+          await prisma.dataRoom.deleteMany({ where: { ownerId: { in: app._userIds } } });
+        }
+        if (app._roomIds.length > 0) {
+          await prisma.dataRoom.deleteMany({ where: { id: { in: app._roomIds } } });
+        }
+        if (app._userIds.length > 0) {
+          await prisma.user.deleteMany({ where: { id: { in: app._userIds } } });
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('e2e cleanup failed — test rows may have leaked:', err);
+        throw err;
+      } finally {
+        await nest.close();
       }
-      if (app._userIds.length > 0) {
-        await prisma.user.deleteMany({ where: { id: { in: app._userIds } } });
-      }
-      await nest.close();
     },
   };
 

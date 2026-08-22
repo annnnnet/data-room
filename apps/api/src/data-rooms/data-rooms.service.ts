@@ -12,7 +12,7 @@ export class DataRoomsService {
   async list(userId: string): Promise<DataRoomDto[]> {
     const owned = await this.prisma.dataRoom.findMany({
       where: { ownerId: userId },
-      include: { nodes: { where: { parentId: null }, select: { id: true } } },
+      include: { nodes: { where: { parentId: null, deletedAt: null }, select: { id: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -31,18 +31,28 @@ export class DataRoomsService {
           },
         },
       },
-      include: { nodes: { where: { parentId: null }, select: { id: true } } },
+      include: { nodes: { where: { parentId: null, deletedAt: null }, select: { id: true } } },
+      orderBy: { createdAt: 'desc' },
     });
 
-    const map = (r: (typeof owned)[number], isOwner: boolean): DataRoomDto => ({
-      id: r.id,
-      name: r.name,
-      rootNodeId: r.nodes[0].id,
-      isOwner,
-      createdAt: r.createdAt.toISOString(),
-    });
+    // A room is never rootless by construction, but stay defensive rather
+    // than let a missing root row throw a TypeError out of a list endpoint.
+    const map = (r: (typeof owned)[number], isOwner: boolean): DataRoomDto | null => {
+      const root = r.nodes[0];
+      if (!root) return null;
+      return {
+        id: r.id,
+        name: r.name,
+        rootNodeId: root.id,
+        isOwner,
+        createdAt: r.createdAt.toISOString(),
+      };
+    };
 
-    return [...owned.map((r) => map(r, true)), ...shared.map((r) => map(r, false))];
+    return [
+      ...owned.map((r) => map(r, true)),
+      ...shared.map((r) => map(r, false)),
+    ].filter((r): r is DataRoomDto => r !== null);
   }
 
   /** A room and its root node are created together — a room is never rootless. */

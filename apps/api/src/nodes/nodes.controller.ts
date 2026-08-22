@@ -1,6 +1,8 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { childrenQuerySchema, type ChildrenQuery } from '@data-room/shared';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentPrincipal } from '../auth/principal.decorator';
+import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { NodesService } from './nodes.service';
 import type { Principal } from '../auth/auth.guard';
 
@@ -18,10 +20,9 @@ export class NodesController {
   children(
     @CurrentPrincipal() p: Principal,
     @Param('id') id: string,
-    @Query('cursor') cursor?: string,
-    @Query('limit') limit?: string,
+    @Query(new ZodValidationPipe(childrenQuerySchema)) query: ChildrenQuery,
   ) {
-    return this.nodes.children(p, id, { cursor, limit: limit ? Number(limit) : undefined });
+    return this.nodes.children(p, id, query);
   }
 
   @Get(':id/stats')

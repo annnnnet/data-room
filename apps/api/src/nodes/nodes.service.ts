@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { encodeCursor, decodeCursor, type NodeDetail, type NodeStats } from '@data-room/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccessService } from '../access/access.service';
+import { AppError } from '../common/api-error';
 import { ancestorIds, subtreePrefix } from '../common/path.util';
 import { toNodeDto } from './node.mapper';
 import type { Principal } from '../auth/auth.guard';
@@ -23,15 +25,17 @@ export class NodesService {
 
   async detail(principal: Principal, id: string): Promise<NodeDetail> {
     const { role } = await this.access.resolve(principal, id);
-    const node = await this.prisma.node.findUniqueOrThrow({ where: { id }, include: INCLUDE });
+    const node = await this.prisma.node.findUnique({ where: { id }, include: INCLUDE });
+    if (!node) throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
 
     const chain = [...ancestorIds(node.path), node.id];
     const rows = await this.prisma.node.findMany({
       where: { id: { in: chain } },
-      select: { id: true, name: true, path: true },
+      select: { id: true, name: true },
     });
     const breadcrumbs = chain.map((cid) => {
-      const r = rows.find((x) => x.id === cid)!;
+      const r = rows.find((x) => x.id === cid);
+      if (!r) throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
       return { id: r.id, name: r.name };
     });
 
@@ -55,14 +59,21 @@ export class NodesService {
   ) {
     await this.access.resolve(principal, id);
     const limit = Math.min(opts.limit ?? 50, 100);
-    const cursor = opts.cursor ? decodeCursor(opts.cursor) : null;
+
+    let cursor = null as ReturnType<typeof decodeCursor>;
+    if (opts.cursor) {
+      cursor = decodeCursor(opts.cursor);
+      if (!cursor) {
+        throw new AppError('VALIDATION_FAILED', 'Invalid cursor', 400);
+      }
+    }
 
     const after = cursor
       ? {
           OR: [
             { type: { in: TYPE_ORDER.slice(TYPE_ORDER.indexOf(cursor.type) + 1) } },
-            { type: cursor.type as any, name: { gt: cursor.name } },
-            { type: cursor.type as any, name: cursor.name, id: { gt: cursor.id } },
+            { type: cursor.type, name: { gt: cursor.name } },
+            { type: cursor.type, name: cursor.name, id: { gt: cursor.id } },
           ],
         }
       : {};
@@ -91,7 +102,7 @@ export class NodesService {
     const prefix = subtreePrefix(node.path);
 
     const [agg] = await this.prisma.$queryRaw<
-      { file_count: bigint; folder_count: bigint; total_bytes: bigint | null }[]
+      { file_count: bigint; folder_count: bigint; total_bytes: Prisma.Decimal }[]
     >`
       SELECT
         COUNT(*) FILTER (WHERE n."type" = 'FILE')   AS file_count,
@@ -107,7 +118,7 @@ export class NodesService {
     return {
       fileCount: Number(agg.file_count),
       folderCount: Number(agg.folder_count),
-      totalBytes: Number(agg.total_bytes ?? 0),
+      totalBytes: Number(agg.total_bytes),
     };
   }
 }
