@@ -36,6 +36,16 @@ export class AccessService {
     let role: 'OWNER' | 'VIEWER' | null = isOwner ? 'OWNER' : null;
 
     if (!role && principal.kind !== 'anonymous') {
+      // Defensive guard: if principal.kind were ever anything other than
+      // 'user' here, it must be 'link', and a missing/empty shareToken must
+      // never be allowed to fall through as `token: undefined` — in Prisma,
+      // an `undefined` value on a where clause means "omit this filter",
+      // which would degrade the query to "any live share on the subtree"
+      // and grant every such caller VIEWER on everything shared.
+      if (principal.kind === 'link' && !principal.shareToken) {
+        throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
+      }
+
       const scope = [...ancestorIds(node.path), node.id];
       const shares = await this.prisma.share.findMany({
         where: {
@@ -46,15 +56,29 @@ export class AccessService {
             ? { granteeUserId: principal.userId }
             : { token: principal.shareToken }),
         },
-        select: { role: true },
+        select: { id: true },
+        take: 1,
       });
       if (shares.length > 0) role = 'VIEWER';
     }
 
     if (!role) throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
+    // The role check MUST precede the deletedAt check: returning 410 before
+    // confirming access would let a stranger learn the id exists (and was
+    // deleted) purely from the ordering of errors, defeating the 404 disguise.
     if (node.deletedAt) throw new AppError('NODE_GONE', 'This item was deleted by the owner', 410);
 
-    return { node, role };
+    const projectedNode: AccessNode = {
+      id: node.id,
+      dataRoomId: node.dataRoomId,
+      path: node.path,
+      parentId: node.parentId,
+      type: node.type,
+      name: node.name,
+      deletedAt: node.deletedAt,
+    };
+
+    return { node: projectedNode, role };
   }
 
   async requireOwner(principal: Principal, nodeId: string): Promise<Access> {
