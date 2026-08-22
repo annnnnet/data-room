@@ -9,6 +9,8 @@ export const ErrorCode = z.enum([
   'UPLOAD_EXPIRED',
   'FORBIDDEN',
   'VALIDATION_FAILED',
+  'UNAUTHORIZED',
+  'INTERNAL',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 
