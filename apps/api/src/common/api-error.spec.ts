@@ -1,4 +1,5 @@
 import { HttpException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { AllExceptionsFilter, AppError } from './api-error';
 
 function makeHost() {
@@ -77,6 +78,32 @@ describe('AllExceptionsFilter', () => {
 
     expect(status).toHaveBeenCalledWith(418);
     expect(json).toHaveBeenCalledWith({ code: 'INTERNAL', message: 'teapot' });
+  });
+
+  it('translates a Prisma P2002 unique-constraint violation into 409 NAME_CONFLICT', () => {
+    const { host, status, json } = makeHost();
+    const err = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: 'test',
+    });
+
+    filter.catch(err, host);
+
+    expect(status).toHaveBeenCalledWith(409);
+    expect(json).toHaveBeenCalledWith({ code: 'NAME_CONFLICT', message: expect.any(String) });
+  });
+
+  it('lets a non-P2002 Prisma error fall through to the generic 500 handling', () => {
+    const { host, status, json } = makeHost();
+    const err = new Prisma.PrismaClientKnownRequestError('Foreign key constraint failed', {
+      code: 'P2003',
+      clientVersion: 'test',
+    });
+
+    filter.catch(err, host);
+
+    expect(status).toHaveBeenCalledWith(500);
+    expect(json).toHaveBeenCalledWith({ code: 'INTERNAL', message: expect.any(String) });
   });
 
   it('turns a plain Error into a 500 INTERNAL response with no internal detail leaked', () => {

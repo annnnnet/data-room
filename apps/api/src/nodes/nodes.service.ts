@@ -124,16 +124,32 @@ export class NodesService {
     };
   }
 
-  async takenNames(parentId: string, excludeId?: string): Promise<string[]> {
-    const rows = await this.prisma.node.findMany({
+  async takenNames(
+    parentId: string,
+    excludeId?: string,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<string[]> {
+    const rows = await client.node.findMany({
       where: { parentId, deletedAt: null, ...(excludeId ? { id: { not: excludeId } } : {}) },
       select: { name: true },
     });
     return rows.map((r) => r.name);
   }
 
-  private async assertNameFree(parentId: string, name: string, excludeId?: string) {
-    const taken = await this.takenNames(parentId, excludeId);
+  /**
+   * Reads via `client` (defaults to `this.prisma`) so a caller inside a
+   * `$transaction` can pass the transaction client and see uncommitted
+   * writes from earlier in that same transaction — reading through
+   * `this.prisma` instead would see only committed state and could pass a
+   * name that the transaction itself already claimed.
+   */
+  private async assertNameFree(
+    parentId: string,
+    name: string,
+    excludeId?: string,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    const taken = await this.takenNames(parentId, excludeId, client);
     const suggested = nextAvailableName(name, taken);
     if (suggested !== name) {
       throw new AppError('NAME_CONFLICT', `"${name}" already exists here`, 409, {
@@ -146,6 +162,9 @@ export class NodesService {
     const { node: parent } = await this.access.requireOwner(principal, input.parentId);
     // requireOwner only grants OWNER to a 'user' principal (see AccessService.resolve).
     if (principal.kind !== 'user') throw new AppError('FORBIDDEN', 'Owner required', 403);
+    if (parent.type !== 'FOLDER') {
+      throw new AppError('INVALID_MOVE', 'Parent is not a folder', 400);
+    }
     await this.assertNameFree(parent.id, input.name);
 
     const id = randomUUID();
@@ -175,32 +194,52 @@ export class NodesService {
       let path = node.path;
       let parentId = node.parentId;
       let depth: number | undefined;
+      let parentChanged = false;
 
       if (input.parentId && input.parentId !== node.parentId) {
         const dest = await tx.node.findUnique({ where: { id: input.parentId } });
-        if (!dest || dest.deletedAt) throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
-        if (dest.type !== 'FOLDER') throw new AppError('INVALID_MOVE', 'Destination is not a folder', 400);
-        if (dest.dataRoomId !== node.dataRoomId) {
-          throw new AppError('INVALID_MOVE', 'Cannot move between data rooms', 400);
+        // A nonexistent id and an id that exists but belongs to someone
+        // else's data room must be indistinguishable (see AccessService.resolve)
+        // — otherwise the response status itself becomes an existence oracle
+        // for ids outside the caller's own room. Only `dest.type` (a property
+        // of a node the caller already knows exists, in their own room) gets
+        // the more specific INVALID_MOVE.
+        if (!dest || dest.deletedAt || dest.dataRoomId !== node.dataRoomId) {
+          throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
         }
+        if (dest.type !== 'FOLDER') throw new AppError('INVALID_MOVE', 'Destination is not a folder', 400);
         if (isSelfOrDescendant(dest.path, node.path)) {
           throw new AppError('INVALID_MOVE', 'A folder cannot be moved into itself', 400);
         }
 
         const newPath = buildPath(dest.path, node.id);
-        // Rewrite every descendant path in one statement.
+        const oldDepth = node.path.split('/').filter(Boolean).length - 1;
+        const newDepth = newPath.split('/').filter(Boolean).length - 1;
+        const depthDelta = newDepth - oldDepth;
+        // Rewrite every descendant path (and keep `depth` consistent with it)
+        // in one statement. The `substring(... from N)` offset is safe only
+        // because `path` is pure ASCII (UUIDs and slashes) — JS string
+        // `.length` and Postgres's character offset agree exactly. If `path`
+        // ever contained multi-byte characters (e.g. a user-supplied name),
+        // this arithmetic would silently corrupt every descendant's path.
         await tx.$executeRaw`
           UPDATE "Node"
-          SET "path" = ${newPath} || substring("path" from ${node.path.length + 1}::int)
+          SET "path" = ${newPath} || substring("path" from ${node.path.length + 1}::int),
+              "depth" = "depth" + ${depthDelta}
           WHERE "path" LIKE ${node.path + '%'} AND "id" <> ${node.id}
         `;
         path = newPath;
         parentId = dest.id;
-        depth = newPath.split('/').filter(Boolean).length - 1;
+        depth = newDepth;
+        parentChanged = true;
       }
 
-      if (input.name && input.name !== node.name) {
-        await this.assertNameFree(parentId!, input.name, node.id);
+      const nameChanged = !!input.name && input.name !== node.name;
+      if (parentChanged || nameChanged) {
+        // Every reparent must recheck the destination for a name conflict,
+        // not just an explicit rename — a bare `{ parentId }` move still
+        // lands the node's existing name in a new folder, which can collide.
+        await this.assertNameFree(parentId!, input.name ?? node.name, node.id, tx);
       }
 
       const updated = await tx.node.update({

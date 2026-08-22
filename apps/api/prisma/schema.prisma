@@ -82,6 +82,9 @@ model Node {
 
   @@index([parentId, type, name])
   @@index([path])
+  // Under a non-"C" collation, a plain btree index can't serve `path LIKE
+  // 'prefix%'` — see migration 20260822160000_node_path_text_pattern_ops_index.
+  @@index([path(ops: raw("text_pattern_ops"))], name: "Node_path_text_pattern_ops_idx", type: BTree)
   @@index([dataRoomId])
 }
 

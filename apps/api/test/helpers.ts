@@ -208,9 +208,13 @@ export interface SeedResult {
   roomId: string;
   ownerId: string;
   root: string;
-  /** First folder/file created directly under the root, if any. */
+  /**
+   * First top-level node under the root. When `spec.nested` is set, this is
+   * the `nested` chain's own child (unshifted ahead of `spec.folders`/
+   * `spec.files`), not necessarily the first folder/file spec listed.
+   */
   child: string | null;
-  /** Second folder/file created directly under the root, if any. */
+  /** Second top-level node under the root, by the same ordering as `child`. */
   second: string | null;
   /** Deepest node of the `nested` chain (e.g. "Contracts" in ['Legal', 'Contracts']). */
   nested: string | null;

@@ -1,0 +1,13 @@
+-- The default btree index on "Node"."path" (Node_path_idx) sorts using the
+-- database's collation (en_US.utf8 in this project's test container, and
+-- typically non-"C" in production too). Postgres can use a plain btree
+-- index for LIKE 'prefix%' only under a "C"/POSIX collation; under any
+-- other collation it falls back to a sequential scan for prefix matches.
+-- That silently defeats the subtree soft-delete, the move path-rewrite, and
+-- stats() — all three are `path LIKE <prefix> || '%'` queries meant to be
+-- O(subtree), not O(table).
+--
+-- A `text_pattern_ops` index compares raw bytes instead of using the
+-- collation, so it stays usable for prefix queries regardless of the
+-- database's collation setting.
+CREATE INDEX "Node_path_text_pattern_ops_idx" ON "Node" ("path" text_pattern_ops);

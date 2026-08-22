@@ -1,4 +1,5 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { ErrorCode } from '@data-room/shared';
 
 function statusToCode(status: number): ErrorCode {
@@ -37,6 +38,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (err instanceof AppError) {
       return res.status(err.status).json({ code: err.code, message: err.message, details: err.details });
+    }
+    // A read-then-write race (assertNameFree passes, then two concurrent
+    // creates/updates both attempt the same (parentId, lower(name)) pair)
+    // can only be caught by the DB's unique index at write time. Translate
+    // that specific violation into the same 409 NAME_CONFLICT contract the
+    // pre-check gives the non-racing caller, instead of leaking it as a raw
+    // 500. Keep this narrow to P2002 — every other Prisma error code (FK
+    // violations, connection errors, etc.) must still fall through below.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      return res.status(409).json({ code: 'NAME_CONFLICT', message: 'Name already exists' });
     }
     if (err instanceof HttpException) {
       const status = err.getStatus();
