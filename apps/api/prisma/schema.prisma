@@ -1,0 +1,125 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum NodeType {
+  FOLDER
+  FILE
+}
+
+enum VersionStatus {
+  PENDING
+  READY
+}
+
+enum ShareKind {
+  LINK
+  USER
+}
+
+enum Role {
+  VIEWER
+}
+
+model User {
+  id          String   @id @default(uuid())
+  supabaseSub String   @unique
+  email       String   @unique
+  name        String?
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+
+  dataRooms      DataRoom[]
+  createdNodes   Node[]        @relation("NodeCreator")
+  createdShares  Share[]       @relation("ShareCreator")
+  receivedShares Share[]       @relation("ShareGrantee")
+  versions       FileVersion[]
+}
+
+model DataRoom {
+  id        String   @id @default(uuid())
+  name      String
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  nodes Node[]
+
+  @@index([ownerId])
+}
+
+model Node {
+  id         String   @id @default(uuid())
+  dataRoomId String
+  dataRoom   DataRoom @relation(fields: [dataRoomId], references: [id], onDelete: Cascade)
+  parentId   String?
+  parent     Node?    @relation("NodeChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children   Node[]   @relation("NodeChildren")
+
+  type  NodeType
+  name  String
+  /// Materialized path: /rootId/childId/  — see common/path.util.ts
+  path  String
+  depth Int
+
+  currentVersionId String?      @unique
+  currentVersion   FileVersion? @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  versions         FileVersion[] @relation("NodeVersions")
+
+  createdById String
+  createdBy   User     @relation("NodeCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  shares Share[]
+
+  @@index([parentId, type, name])
+  @@index([path])
+  @@index([dataRoomId])
+}
+
+model FileVersion {
+  id            String        @id @default(uuid())
+  nodeId        String
+  node          Node          @relation("NodeVersions", fields: [nodeId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  storageKey    String
+  sizeBytes     BigInt
+  mimeType      String
+  status        VersionStatus @default(PENDING)
+  createdById   String
+  createdBy     User          @relation(fields: [createdById], references: [id])
+  createdAt     DateTime      @default(now())
+
+  currentOf Node? @relation("CurrentVersion")
+
+  @@unique([nodeId, versionNumber])
+  @@index([nodeId])
+}
+
+model Share {
+  id             String    @id @default(uuid())
+  nodeId         String
+  node           Node      @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  kind           ShareKind
+  token          String?   @unique
+  granteeUserId  String?
+  granteeUser    User?     @relation("ShareGrantee", fields: [granteeUserId], references: [id], onDelete: Cascade)
+  granteeEmail   String?
+  role           Role      @default(VIEWER)
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  createdById    String
+  createdBy      User      @relation("ShareCreator", fields: [createdById], references: [id])
+  createdAt      DateTime  @default(now())
+
+  @@index([nodeId])
+  @@index([granteeUserId])
+}
