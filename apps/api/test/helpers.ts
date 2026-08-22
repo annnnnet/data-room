@@ -255,6 +255,13 @@ export interface SeedSpec {
   shareRootWith?: string;
   /** Grants the given user VIEWER access on the `nested` node. */
   shareNestedWith?: string;
+  /**
+   * Opt-in: attaches a standing LINK share on the root node so tests can use
+   * `asLink()` without creating their own share. Off by default — a test
+   * exercising "no share exists" must not run inside a room that already
+   * has a live one.
+   */
+  shareRootWithLink?: boolean;
 }
 
 export interface SeedResult {
@@ -523,18 +530,23 @@ export async function seedTree(app: TestApp, spec: SeedSpec): Promise<SeedResult
     });
   }
 
-  // A standing LINK share on the root, so any test can exercise asLink()
-  // without needing its own share-creation spec.
-  const viewerToken = randomUUID();
-  await prisma.share.create({
-    data: {
-      nodeId: rootId,
-      kind: 'LINK',
-      token: viewerToken,
-      role: 'VIEWER',
-      createdById: owner.id,
-    },
-  });
+  // A standing LINK share on the root, opt-in via spec.shareRootWithLink, so
+  // a test can exercise asLink() without creating its own share — but a test
+  // that expects "no share" to yield 404 doesn't silently run inside a room
+  // that already has a live one.
+  let viewerToken = '';
+  if (spec.shareRootWithLink) {
+    viewerToken = randomUUID();
+    await prisma.share.create({
+      data: {
+        nodeId: rootId,
+        kind: 'LINK',
+        token: viewerToken,
+        role: 'VIEWER',
+        createdById: owner.id,
+      },
+    });
+  }
 
   return {
     roomId: room.id,
