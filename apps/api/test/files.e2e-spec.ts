@@ -76,6 +76,38 @@ describe('files', () => {
     expect(versions.body[0].isCurrent).toBe(true);
   });
 
+  // Owning the node does not imply owning the version. Without a scope check,
+  // an owner could point their own node at another tenant's blob and publish
+  // that tenant's half-finished upload as a side effect.
+  it('refuses to complete a node with a version belonging to a different node', async () => {
+    const mine = await seedTree(app, {});
+    const theirs = await seedTree(app, {});
+
+    const victim = await app
+      .asUser(theirs.ownerId)
+      .post('/api/files/upload-url')
+      .send({ parentId: theirs.root, name: 'secret.pdf', sizeBytes: 100, mimeType: 'application/pdf' })
+      .expect(201);
+
+    const attacker = await app
+      .asUser(mine.ownerId)
+      .post('/api/files/upload-url')
+      .send({ parentId: mine.root, name: 'mine.pdf', sizeBytes: 100, mimeType: 'application/pdf' })
+      .expect(201);
+
+    const res = await app
+      .asUser(mine.ownerId)
+      .post(`/api/files/${attacker.body.nodeId}/complete`)
+      .send({ versionId: victim.body.versionId });
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe('NODE_NOT_FOUND');
+
+    // The victim's version must still be PENDING, so it stays invisible.
+    const theirListing = await app.asUser(theirs.ownerId).get(`/api/nodes/${theirs.root}/children`).expect(200);
+    expect(theirListing.body.items).toHaveLength(0);
+  });
+
   it('gives a viewer a download URL but not an upload URL', async () => {
     const { root, fileId } = await seedTree(app, { files: ['msa.pdf'], shareRootWith: 'u2' });
     await app.asUser('u2').get(`/api/files/${fileId}/download-url`).expect(200);

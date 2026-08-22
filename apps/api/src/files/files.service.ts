@@ -103,7 +103,17 @@ export class FilesService {
   async complete(principal: Principal, nodeId: string, versionId: string) {
     await this.access.requireOwner(principal, nodeId);
     const updated = await this.prisma.$transaction(async (tx) => {
-      await tx.fileVersion.update({ where: { id: versionId }, data: { status: 'READY' } });
+      // Scope the version to the node in one atomic statement. Owning the node
+      // does not imply owning the version: without this, an owner could point
+      // their own node at another tenant's blob by passing its versionId, and
+      // flip that tenant's PENDING upload to READY as a side effect.
+      const { count } = await tx.fileVersion.updateMany({
+        where: { id: versionId, nodeId },
+        data: { status: 'READY' },
+      });
+      if (count !== 1) {
+        throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
+      }
       return tx.node.update({
         where: { id: nodeId },
         data: { currentVersionId: versionId },
