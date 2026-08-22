@@ -75,6 +75,25 @@ describe('AccessService.resolve', () => {
     });
   });
 
+  // The IDOR shape: the share is on the right node, just not for this caller.
+  // Scope-based tests (sibling/descendant) cannot catch a missing principal
+  // filter, because the nodeId scope is correct in this case — only identity
+  // separates the two users.
+  it('does not grant access via a share on this node granted to a different user', async () => {
+    const { svc } = serviceWith(NODE, [{ nodeId: 'leaf', role: 'VIEWER', granteeUserId: 'u2' }]);
+    await expect(svc.resolve({ kind: 'user', userId: 'u3' }, 'leaf')).rejects.toMatchObject({
+      code: 'NODE_NOT_FOUND',
+      status: 404,
+    });
+  });
+
+  it('does not let a signed-in user claim a public link share on this node', async () => {
+    const { svc } = serviceWith(NODE, [{ nodeId: 'leaf', role: 'VIEWER', token: 'tok' }]);
+    await expect(svc.resolve({ kind: 'user', userId: 'u3' }, 'leaf')).rejects.toMatchObject({
+      code: 'NODE_NOT_FOUND',
+    });
+  });
+
   it('grants VIEWER on a share inherited from an ancestor', async () => {
     const { svc } = serviceWith(NODE, [{ nodeId: 'mid', role: 'VIEWER', granteeUserId: 'u2' }]);
     await expect(svc.resolve({ kind: 'user', userId: 'u2' }, 'leaf')).resolves.toMatchObject({
