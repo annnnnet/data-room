@@ -37,6 +37,6 @@ describe('AuthGuard', () => {
   it('rejects a malformed bearer token', async () => {
     verify.mockRejectedValue(new Error('bad signature'));
     const ctx = ctxWith({ authorization: 'Bearer bad' });
-    await expect(guard.canActivate(ctx)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(guard.canActivate(ctx)).rejects.toMatchObject({ code: 'UNAUTHORIZED', status: 401 });
   });
 });

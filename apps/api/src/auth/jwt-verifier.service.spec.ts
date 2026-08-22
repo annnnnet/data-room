@@ -40,18 +40,13 @@ describe('JwtVerifierService', () => {
     );
   });
 
-  it('rejects a token with the wrong issuer', async () => {
+  // Enforcement of iss/aud lives inside jose, not here. What this codebase owns
+  // is passing the right options (asserted above) and not swallowing a rejection.
+  it('propagates a verification failure instead of returning a payload', async () => {
     mockJwtVerify.mockRejectedValue(new Error('unexpected "iss" claim value'));
     const service = new JwtVerifierService();
 
-    await expect(service.verify('bad-iss-token')).rejects.toThrow();
-  });
-
-  it('rejects a token with the wrong audience', async () => {
-    mockJwtVerify.mockRejectedValue(new Error('unexpected "aud" claim value'));
-    const service = new JwtVerifierService();
-
-    await expect(service.verify('bad-aud-token')).rejects.toThrow();
+    await expect(service.verify('bad-token')).rejects.toThrow('unexpected "iss" claim value');
   });
 
   it('creates the remote JWKS set lazily and only once across multiple verify calls', async () => {

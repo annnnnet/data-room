@@ -25,7 +25,7 @@ export class AuthGuard implements CanActivate {
       try {
         claims = await this.jwt.verify(bearer);
       } catch {
-        throw new AppError('FORBIDDEN', 'Invalid or expired session', 401);
+        throw new AppError('UNAUTHORIZED', 'Invalid or expired session', 401);
       }
       const user = await this.users.upsertFromClaims(claims);
       req.principal = { kind: 'user', userId: user.id };
