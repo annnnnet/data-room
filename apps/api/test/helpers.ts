@@ -268,6 +268,23 @@ async function createFileNode(
 }
 
 /**
+ * Ensures a User row exists with exactly the given id, so a share's
+ * `granteeUserId` matches the literal id a test passes to `asUser(id)` (the
+ * TestAuthGuard puts that literal string straight onto `principal.userId` —
+ * it never gets translated to a real database id). Idempotent per id and
+ * tracked for cleanup.
+ */
+async function ensureTestUser(prisma: PrismaService, app: TestApp, id: string): Promise<string> {
+  await prisma.user.upsert({
+    where: { id },
+    update: {},
+    create: { id, supabaseSub: `test-${id}-${randomUUID()}`, email: `${id}-${randomUUID()}@test.local` },
+  });
+  if (!app._userIds.includes(id)) app._userIds.push(id);
+  return id;
+}
+
+/**
  * Inserts a fresh data room (with its own owner user) directly via Prisma,
  * following the same materialized-path rules the app itself enforces
  * (buildPath from parent path + generated id, depth = parent depth + 1).
@@ -366,7 +383,11 @@ export async function seedTree(app: TestApp, spec: SeedSpec): Promise<SeedResult
         createdById: owner.id,
       },
     });
-    topLevelIds.push(childId);
+    // Unshifted rather than pushed: when a spec also seeds top-level
+    // `folders`/`files`, this keeps `second` (a plain sibling folder)
+    // distinct from `nested`'s actual parent, so a test that moves `nested`
+    // to `second` exercises a real reparent rather than a same-parent no-op.
+    topLevelIds.unshift(childId);
 
     const nestedId = randomUUID();
     const nestedPath = buildPath(childPath, nestedId);
@@ -398,11 +419,12 @@ export async function seedTree(app: TestApp, spec: SeedSpec): Promise<SeedResult
     }
 
     if (spec.shareNestedWith) {
+      const granteeId = await ensureTestUser(prisma, app, spec.shareNestedWith);
       await prisma.share.create({
         data: {
           nodeId: nestedId,
           kind: 'USER',
-          granteeUserId: spec.shareNestedWith,
+          granteeUserId: granteeId,
           role: 'VIEWER',
           createdById: owner.id,
         },
@@ -428,11 +450,12 @@ export async function seedTree(app: TestApp, spec: SeedSpec): Promise<SeedResult
   }
 
   if (spec.shareRootWith) {
+    const granteeId = await ensureTestUser(prisma, app, spec.shareRootWith);
     await prisma.share.create({
       data: {
         nodeId: rootId,
         kind: 'USER',
-        granteeUserId: spec.shareRootWith,
+        granteeUserId: granteeId,
         role: 'VIEWER',
         createdById: owner.id,
       },

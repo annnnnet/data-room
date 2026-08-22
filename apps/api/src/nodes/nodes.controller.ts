@@ -1,5 +1,10 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
-import { childrenQuerySchema, type ChildrenQuery } from '@data-room/shared';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  childrenQuerySchema,
+  createFolderSchema,
+  updateNodeSchema,
+  type ChildrenQuery,
+} from '@data-room/shared';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentPrincipal } from '../auth/principal.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -28,5 +33,33 @@ export class NodesController {
   @Get(':id/stats')
   stats(@CurrentPrincipal() p: Principal, @Param('id') id: string) {
     return this.nodes.stats(p, id);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentPrincipal() p: Principal,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateNodeSchema)) body: { name?: string; parentId?: string },
+  ) {
+    return this.nodes.update(p, id, body);
+  }
+
+  @Delete(':id')
+  remove(@CurrentPrincipal() p: Principal, @Param('id') id: string) {
+    return this.nodes.softDelete(p, id);
+  }
+}
+
+@UseGuards(AuthGuard)
+@Controller('folders')
+export class FoldersController {
+  constructor(private nodes: NodesService) {}
+
+  @Post()
+  createFolder(
+    @CurrentPrincipal() p: Principal,
+    @Body(new ZodValidationPipe(createFolderSchema)) body: { parentId: string; name: string },
+  ) {
+    return this.nodes.createFolder(p, body);
   }
 }

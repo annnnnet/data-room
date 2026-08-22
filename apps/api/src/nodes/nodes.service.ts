@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { encodeCursor, decodeCursor, type NodeDetail, type NodeStats } from '@data-room/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccessService } from '../access/access.service';
 import { AppError } from '../common/api-error';
-import { ancestorIds, subtreePrefix } from '../common/path.util';
+import { ancestorIds, subtreePrefix, buildPath, isSelfOrDescendant } from '../common/path.util';
+import { nextAvailableName } from '../common/name.util';
 import { toNodeDto } from './node.mapper';
 import type { Principal } from '../auth/auth.guard';
 
@@ -120,5 +122,109 @@ export class NodesService {
       folderCount: Number(agg.folder_count),
       totalBytes: Number(agg.total_bytes),
     };
+  }
+
+  async takenNames(parentId: string, excludeId?: string): Promise<string[]> {
+    const rows = await this.prisma.node.findMany({
+      where: { parentId, deletedAt: null, ...(excludeId ? { id: { not: excludeId } } : {}) },
+      select: { name: true },
+    });
+    return rows.map((r) => r.name);
+  }
+
+  private async assertNameFree(parentId: string, name: string, excludeId?: string) {
+    const taken = await this.takenNames(parentId, excludeId);
+    const suggested = nextAvailableName(name, taken);
+    if (suggested !== name) {
+      throw new AppError('NAME_CONFLICT', `"${name}" already exists here`, 409, {
+        suggestedName: suggested,
+      });
+    }
+  }
+
+  async createFolder(principal: Principal, input: { parentId: string; name: string }) {
+    const { node: parent } = await this.access.requireOwner(principal, input.parentId);
+    // requireOwner only grants OWNER to a 'user' principal (see AccessService.resolve).
+    if (principal.kind !== 'user') throw new AppError('FORBIDDEN', 'Owner required', 403);
+    await this.assertNameFree(parent.id, input.name);
+
+    const id = randomUUID();
+    const created = await this.prisma.node.create({
+      data: {
+        id,
+        dataRoomId: parent.dataRoomId,
+        parentId: parent.id,
+        type: 'FOLDER',
+        name: input.name,
+        path: buildPath(parent.path, id),
+        depth: parent.path.split('/').filter(Boolean).length,
+        createdById: principal.userId,
+      },
+      include: INCLUDE,
+    });
+    return toNodeDto(created);
+  }
+
+  async update(principal: Principal, id: string, input: { name?: string; parentId?: string }) {
+    const { node } = await this.access.requireOwner(principal, id);
+    if (node.parentId === null) {
+      throw new AppError('INVALID_MOVE', 'The data room root cannot be renamed or moved', 400);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      let path = node.path;
+      let parentId = node.parentId;
+      let depth: number | undefined;
+
+      if (input.parentId && input.parentId !== node.parentId) {
+        const dest = await tx.node.findUnique({ where: { id: input.parentId } });
+        if (!dest || dest.deletedAt) throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
+        if (dest.type !== 'FOLDER') throw new AppError('INVALID_MOVE', 'Destination is not a folder', 400);
+        if (dest.dataRoomId !== node.dataRoomId) {
+          throw new AppError('INVALID_MOVE', 'Cannot move between data rooms', 400);
+        }
+        if (isSelfOrDescendant(dest.path, node.path)) {
+          throw new AppError('INVALID_MOVE', 'A folder cannot be moved into itself', 400);
+        }
+
+        const newPath = buildPath(dest.path, node.id);
+        // Rewrite every descendant path in one statement.
+        await tx.$executeRaw`
+          UPDATE "Node"
+          SET "path" = ${newPath} || substring("path" from ${node.path.length + 1}::int)
+          WHERE "path" LIKE ${node.path + '%'} AND "id" <> ${node.id}
+        `;
+        path = newPath;
+        parentId = dest.id;
+        depth = newPath.split('/').filter(Boolean).length - 1;
+      }
+
+      if (input.name && input.name !== node.name) {
+        await this.assertNameFree(parentId!, input.name, node.id);
+      }
+
+      const updated = await tx.node.update({
+        where: { id },
+        data: {
+          ...(input.name ? { name: input.name } : {}),
+          ...(input.parentId ? { parentId, path, depth } : {}),
+        },
+        include: INCLUDE,
+      });
+      return toNodeDto(updated);
+    });
+  }
+
+  /** One prefix UPDATE stamps the node and every descendant. */
+  async softDelete(principal: Principal, id: string) {
+    const { node } = await this.access.requireOwner(principal, id);
+    if (node.parentId === null) {
+      throw new AppError('INVALID_MOVE', 'Delete the data room instead of its root folder', 400);
+    }
+    const deletedCount = await this.prisma.$executeRaw`
+      UPDATE "Node" SET "deletedAt" = now()
+      WHERE "path" LIKE ${subtreePrefix(node.path) + '%'} AND "deletedAt" IS NULL
+    `;
+    return { deletedCount };
   }
 }
