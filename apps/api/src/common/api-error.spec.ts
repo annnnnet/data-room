@@ -93,7 +93,20 @@ describe('AllExceptionsFilter', () => {
     expect(json).toHaveBeenCalledWith({ code: 'NAME_CONFLICT', message: expect.any(String) });
   });
 
-  it('lets a non-P2002 Prisma error fall through to the generic 500 handling', () => {
+  it('translates a Prisma P2025 "record not found" into 404 NODE_NOT_FOUND', () => {
+    const { host, status, json } = makeHost();
+    const err = new Prisma.PrismaClientKnownRequestError('An operation failed because it depends on one or more records that were required but not found.', {
+      code: 'P2025',
+      clientVersion: 'test',
+    });
+
+    filter.catch(err, host);
+
+    expect(status).toHaveBeenCalledWith(404);
+    expect(json).toHaveBeenCalledWith({ code: 'NODE_NOT_FOUND', message: expect.any(String) });
+  });
+
+  it('lets a non-P2002/P2025 Prisma error fall through to the generic 500 handling', () => {
     const { host, status, json } = makeHost();
     const err = new Prisma.PrismaClientKnownRequestError('Foreign key constraint failed', {
       code: 'P2003',

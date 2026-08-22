@@ -13,11 +13,28 @@ describe('files', () => {
       .post('/api/files/upload-url')
       .send({ parentId: root, name, sizeBytes: 100, mimeType: 'application/pdf', onConflict });
 
-  it('creates a pending version and returns a signed URL', async () => {
+  /** Simulates the browser's PUT, then completes the upload as the owner. */
+  const uploadAndComplete = async (nodeId: string, versionId: string, expectStatus = 201) => {
+    await app.uploadBytes(versionId);
+    return app
+      .asOwner()
+      .post(`/api/files/${nodeId}/complete`)
+      .send({ versionId })
+      .expect(expectStatus);
+  };
+
+  it('creates a real PENDING version and keeps the node out of listings', async () => {
     const { root } = await seedTree(app, {});
     const res = await upload(root, 'msa.pdf').expect(201);
-    expect(res.body.uploadUrl).toContain('signed');
     expect(res.body.finalName).toBe('msa.pdf');
+
+    const version = await app.prisma.fileVersion.findUnique({ where: { id: res.body.versionId } });
+    expect(version).not.toBeNull();
+    expect(version!.nodeId).toBe(res.body.nodeId);
+    expect(version!.status).toBe('PENDING');
+
+    const list = await app.asOwner().get(`/api/nodes/${root}/children`).expect(200);
+    expect(list.body.items.map((n: any) => n.id)).not.toContain(res.body.nodeId);
   });
 
   it('hides a pending file from listings until completion', async () => {
@@ -30,13 +47,29 @@ describe('files', () => {
   it('shows the file once completed', async () => {
     const { root } = await seedTree(app, {});
     const { body } = await upload(root, 'msa.pdf').expect(201);
-    await app
-      .asOwner()
-      .post(`/api/files/${body.nodeId}/complete`)
-      .send({ versionId: body.versionId })
-      .expect(201);
+    await uploadAndComplete(body.nodeId, body.versionId);
     const list = await app.asOwner().get(`/api/nodes/${root}/children`).expect(200);
     expect(list.body.items.map((n: any) => n.name)).toEqual(['msa.pdf']);
+  });
+
+  it('refuses to complete an upload whose bytes were never PUT to storage', async () => {
+    const { root } = await seedTree(app, {});
+    const { body } = await upload(root, 'msa.pdf').expect(201);
+
+    // No app.uploadBytes() call — the object was never actually written.
+    const res = await app
+      .asOwner()
+      .post(`/api/files/${body.nodeId}/complete`)
+      .send({ versionId: body.versionId });
+
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe('UPLOAD_EXPIRED');
+
+    // Must stay PENDING and out of the listing.
+    const version = await app.prisma.fileVersion.findUnique({ where: { id: body.versionId } });
+    expect(version!.status).toBe('PENDING');
+    const list = await app.asOwner().get(`/api/nodes/${root}/children`).expect(200);
+    expect(list.body.items).toHaveLength(0);
   });
 
   it('fails a same-name upload by default and suggests a name', async () => {
@@ -46,34 +79,88 @@ describe('files', () => {
     expect(res.body.code).toBe('NAME_CONFLICT');
   });
 
-  it('KEEP_BOTH creates a second node with the suggested name', async () => {
-    const { root } = await seedTree(app, { files: ['msa.pdf'] });
+  it('KEEP_BOTH creates a genuinely separate node, not a rename of the existing one', async () => {
+    const { root, fileId } = await seedTree(app, { files: ['msa.pdf'] });
     const res = await upload(root, 'msa.pdf', 'KEEP_BOTH').expect(201);
     expect(res.body.finalName).toBe('msa (2).pdf');
+    // A buggy implementation could return the suggested name while reusing
+    // the original node id — assert both the id actually changed and that
+    // the listing really does contain two entries afterward.
+    expect(res.body.nodeId).not.toBe(fileId);
+    await uploadAndComplete(res.body.nodeId, res.body.versionId);
+
+    const list = await app.asOwner().get(`/api/nodes/${root}/children`).expect(200);
+    expect(list.body.items.map((n: any) => n.name).sort()).toEqual(['msa (2).pdf', 'msa.pdf']);
   });
 
   it('REPLACE adds version 2 to the existing node instead of a new node', async () => {
     const { root, fileId } = await seedTree(app, { files: ['msa.pdf'] });
     const res = await upload(root, 'msa.pdf', 'REPLACE').expect(201);
     expect(res.body.nodeId).toBe(fileId);
-    await app
-      .asOwner()
-      .post(`/api/files/${fileId}/complete`)
-      .send({ versionId: res.body.versionId })
-      .expect(201);
+    await uploadAndComplete(fileId, res.body.versionId);
     const versions = await app.asOwner().get(`/api/files/${fileId}/versions`).expect(200);
     expect(versions.body.map((v: any) => v.versionNumber)).toEqual([2, 1]);
     expect(versions.body[0].isCurrent).toBe(true);
     expect(versions.body[1].isCurrent).toBe(false);
   });
 
-  it('restores an old version as a new current version', async () => {
+  it('REPLACE reports the node\'s existing name, not the caller\'s casing', async () => {
+    const { root, fileId } = await seedTree(app, { files: ['msa.pdf'] });
+    const res = await upload(root, 'MSA.PDF', 'REPLACE').expect(201);
+    expect(res.body.nodeId).toBe(fileId);
+    // The node is still named "msa.pdf" — reporting "MSA.PDF" would claim a
+    // rename that never happened.
+    expect(res.body.finalName).toBe('msa.pdf');
+  });
+
+  it('restores an old version as a new current version, sourced from the requested one', async () => {
     const { root, fileId } = await seedTree(app, { files: ['msa.pdf'], versions: 2 });
     await app.asOwner().post(`/api/files/${fileId}/versions/1/restore`).expect(201);
     const versions = await app.asOwner().get(`/api/files/${fileId}/versions`).expect(200);
     expect(versions.body.map((v: any) => v.versionNumber)).toEqual([3, 2, 1]);
     expect(versions.body[0].versionNumber).toBe(3);
     expect(versions.body[0].isCurrent).toBe(true);
+    // Version 1 was seeded with sizeBytes 1024 and version 2 with 2048 (see
+    // helpers.ts) specifically so this can catch an implementation that
+    // restores the wrong (e.g. latest) version instead of the requested
+    // one: the new version 3 must carry version 1's size, not version 2's.
+    const v1 = versions.body.find((v: any) => v.versionNumber === 1);
+    const v3 = versions.body.find((v: any) => v.versionNumber === 3);
+    expect(v3.sizeBytes).toBe(v1.sizeBytes);
+    expect(v3.sizeBytes).toBe(1024);
+  });
+
+  it('refuses to restore a PENDING version (never uploaded)', async () => {
+    const { root, fileId } = await seedTree(app, { files: ['msa.pdf'] });
+    // version 2 is requested but never uploaded/completed — it stays PENDING.
+    const pending = await upload(root, 'msa.pdf', 'REPLACE').expect(201);
+    expect(pending.body.nodeId).toBe(fileId);
+
+    const res = await app.asOwner().post(`/api/files/${fileId}/versions/2/restore`);
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe('NODE_NOT_FOUND');
+
+    // Nothing should have changed: still one READY version, current unchanged.
+    const versions = await app.asOwner().get(`/api/files/${fileId}/versions`).expect(200);
+    expect(versions.body.map((v: any) => v.versionNumber)).toEqual([1]);
+  });
+
+  it('gives 404 for restoring a version number that never existed', async () => {
+    const { fileId } = await seedTree(app, { files: ['msa.pdf'] });
+    const res = await app.asOwner().post(`/api/files/${fileId}/versions/99/restore`);
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe('NODE_NOT_FOUND');
+  });
+
+  it('rejects a non-positive version number before it ever reaches the database', async () => {
+    const { fileId } = await seedTree(app, { files: ['msa.pdf'] });
+    const zero = await app.asOwner().post(`/api/files/${fileId}/versions/0/restore`);
+    expect(zero.status).toBe(400);
+    expect(zero.body.code).toBe('VALIDATION_FAILED');
+
+    const negative = await app.asOwner().post(`/api/files/${fileId}/versions/-1/restore`);
+    expect(negative.status).toBe(400);
+    expect(negative.body.code).toBe('VALIDATION_FAILED');
   });
 
   // Owning the node does not imply owning the version. Without a scope check,
@@ -117,5 +204,54 @@ describe('files', () => {
       .send({ parentId: root, name: 'x.pdf', sizeBytes: 1, mimeType: 'application/pdf' })
       .expect(403);
     expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('refuses a viewer completing an upload', async () => {
+    const seed = await seedTree(app, { files: ['msa.pdf'], shareRootWith: 'u2' });
+    const { body } = await upload(seed.root, 'other.pdf').expect(201);
+    const res = await app
+      .asUser('u2')
+      .post(`/api/files/${body.nodeId}/complete`)
+      .send({ versionId: body.versionId });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('refuses a viewer restoring a version', async () => {
+    const { fileId } = await seedTree(app, { files: ['msa.pdf'], versions: 2, shareRootWith: 'u2' });
+    const res = await app.asUser('u2').post(`/api/files/${fileId}/versions/1/restore`);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
+  it('combines a PENDING file with a cursor without ever surfacing it, across pages', async () => {
+    const { root } = await seedTree(app, {});
+    // 5 READY files (via seedTree's own helper), interleaved with 5 PENDING
+    // ones created through the real upload flow so the (parentId,type,name)
+    // index actually has PENDING rows sitting inside the paginated range.
+    const readyNames = Array.from({ length: 5 }, (_, i) => `ready-${String(i).padStart(2, '0')}.pdf`);
+    for (const name of readyNames) {
+      const { body } = await upload(root, name).expect(201);
+      await uploadAndComplete(body.nodeId, body.versionId);
+    }
+    const pendingNames = Array.from({ length: 5 }, (_, i) => `pending-${String(i).padStart(2, '0')}.pdf`);
+    for (const name of pendingNames) {
+      await upload(root, name).expect(201);
+    }
+
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const url = `/api/nodes/${root}/children?limit=2${cursor ? `&cursor=${cursor}` : ''}`;
+      const res: any = await app.asOwner().get(url).expect(200);
+      seen.push(...res.body.items.map((n: any) => n.name));
+      cursor = res.body.nextCursor;
+    } while (cursor);
+
+    expect(seen).toHaveLength(5);
+    expect(seen.sort()).toEqual([...readyNames].sort());
+    for (const name of pendingNames) {
+      expect(seen).not.toContain(name);
+    }
   });
 });

@@ -151,3 +151,19 @@ Equivalent scripts exist at the repo root: `pnpm test:e2e:db:up` /
 The container's credentials (`data_room_test` / `data_room_test`,
 database `data_room_test`) are local-only throwaway values — safe to keep
 in `docker-compose.yml` and `.env.example`.
+
+## Known limitations
+
+- **Orphaned PENDING rows are never cleaned up.** If a client requests an
+  upload URL and then never PUTs the bytes (or never calls `complete`), the
+  `FileVersion` stays PENDING forever and the `Node` it belongs to
+  (for a brand-new file) or the extra version (for a REPLACE) sits there
+  permanently. For a brand-new file this permanently occupies that name in
+  the parent folder — retrying the same upload hits `NAME_CONFLICT` even
+  though nothing is actually there. There is no sweeper job or TTL that
+  reclaims these; this is a deliberate deferral, not an oversight.
+- **Soft-deleting a node never removes its blobs.** `softDelete` stamps
+  `deletedAt` on the node and its descendants but never calls Supabase
+  Storage to delete the underlying objects. Deleted files' blobs remain in
+  the bucket indefinitely. Building a cleanup sweeper for either of the
+  above is out of scope for now.

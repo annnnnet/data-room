@@ -29,6 +29,15 @@ export class NodesService {
     const { role } = await this.access.resolve(principal, id);
     const node = await this.prisma.node.findUnique({ where: { id }, include: INCLUDE });
     if (!node) throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
+    // A FILE with no currentVersionId is a half-uploaded (PENDING) file and
+    // must stay invisible by direct id too, not just in listings — to a
+    // viewer sharing an ancestor exactly as much as to a total stranger.
+    // The owner is the one exception: they're the one who can see upload
+    // progress (e.g. "is this still pending?") and there's no one else to
+    // leak it to.
+    if (node.type === 'FILE' && !node.currentVersionId && role !== 'OWNER') {
+      throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
+    }
 
     const chain = [...ancestorIds(node.path), node.id];
     const rows = await this.prisma.node.findMany({
@@ -116,9 +125,9 @@ export class NodesService {
       { file_count: bigint; folder_count: bigint; total_bytes: Prisma.Decimal }[]
     >`
       SELECT
-        COUNT(*) FILTER (WHERE n."type" = 'FILE')   AS file_count,
-        COUNT(*) FILTER (WHERE n."type" = 'FOLDER') AS folder_count,
-        COALESCE(SUM(v."sizeBytes"), 0)             AS total_bytes
+        COUNT(*) FILTER (WHERE n."type" = 'FILE' AND n."currentVersionId" IS NOT NULL) AS file_count,
+        COUNT(*) FILTER (WHERE n."type" = 'FOLDER')                                    AS folder_count,
+        COALESCE(SUM(v."sizeBytes"), 0)                                                AS total_bytes
       FROM "Node" n
       LEFT JOIN "FileVersion" v ON v."id" = n."currentVersionId"
       WHERE n."path" LIKE ${prefix + '%'}

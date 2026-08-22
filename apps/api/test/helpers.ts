@@ -95,7 +95,16 @@ class TestAuthGuard implements CanActivate {
  * the returned upload URL contains "signed", which the e2e spec asserts on.
  */
 @Injectable()
-class FakeStorageService {
+class FakeStorageService
+  implements Pick<StorageService, 'storageKey' | 'signedUploadUrl' | 'signedDownloadUrl' | 'objectExists'>
+{
+  // Keyed honestly: a key only lands here once something has told the fake
+  // the bytes actually landed (see `markUploaded` below) — never just
+  // because an upload URL was requested for it. That's what makes
+  // `objectExists` a real stand-in for "did the client actually PUT the
+  // file", not a tautology.
+  private uploaded = new Set<string>();
+
   storageKey(dataRoomId: string, versionId: string) {
     return `${dataRoomId}/${versionId}`;
   }
@@ -104,6 +113,13 @@ class FakeStorageService {
   }
   async signedDownloadUrl(key: string, filename: string, disposition: 'inline' | 'attachment') {
     return `https://fake.storage.test/download/${encodeURIComponent(key)}?signed=1&disposition=${disposition}&filename=${encodeURIComponent(filename)}`;
+  }
+  async objectExists(key: string): Promise<boolean> {
+    return this.uploaded.has(key);
+  }
+  /** Test-only: simulates the browser's PUT to the signed URL completing. */
+  markUploaded(key: string) {
+    this.uploaded.add(key);
   }
 }
 
@@ -141,6 +157,14 @@ export interface TestApp {
   asLink(token: string): Agent;
   /** No auth header at all — an anonymous caller, not even a stranger id. */
   asAnonymous(): Agent;
+  /**
+   * Simulates the browser's PUT of the file bytes to the signed upload URL
+   * for the given `versionId` — the one step the real flow never lets the
+   * API see. Call this before `POST /files/:id/complete` in any test that
+   * expects `complete` to succeed, now that `complete` actually checks the
+   * object is there.
+   */
+  uploadBytes(versionId: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -162,6 +186,7 @@ export async function createTestApp(): Promise<TestApp> {
 
   const prisma = moduleRef.get(PrismaService);
   const server = nest.getHttpServer();
+  const fakeStorage = moduleRef.get(StorageService) as unknown as FakeStorageService;
 
   const app: TestApp = {
     nest,
@@ -176,6 +201,10 @@ export async function createTestApp(): Promise<TestApp> {
     asStranger: () => agentWithHeader(server, { 'x-test-user': randomUUID() }),
     asLink: (token: string) => agentWithHeader(server, { 'x-share-token': token }),
     asAnonymous: () => agentWithHeader(server, {}),
+    uploadBytes: async (versionId: string) => {
+      const version = await prisma.fileVersion.findUniqueOrThrow({ where: { id: versionId } });
+      fakeStorage.markUploaded(version.storageKey);
+    },
     close: async () => {
       // User-scoped cleanup only — never touch tables globally, and never
       // touch the seeded demo room, which isn't owned by any tracked user.
@@ -467,7 +496,11 @@ export async function seedTree(app: TestApp, spec: SeedSpec): Promise<SeedResult
           nodeId: fileId,
           versionNumber: n,
           storageKey: `test/${fileId}/v${n}`,
-          sizeBytes: BigInt(1024),
+          // Distinguishable per version (1024 * n) rather than a shared
+          // constant: a restore test asserting only on versionNumber would
+          // still pass if the implementation copied the wrong source
+          // version, since every version would look identical otherwise.
+          sizeBytes: BigInt(1024 * n),
           mimeType: 'application/pdf',
           status: 'READY',
           createdById: owner.id,

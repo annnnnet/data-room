@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { completeUploadSchema, uploadUrlRequestSchema, type UploadUrlRequest } from '@data-room/shared';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentPrincipal } from '../auth/principal.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { ParsePositiveIntPipe } from '../common/parse-positive-int.pipe';
 import { FilesService } from './files.service';
 import type { Principal } from '../auth/auth.guard';
 
@@ -47,7 +48,7 @@ export class FilesController {
   restore(
     @CurrentPrincipal() p: Principal,
     @Param('id') id: string,
-    @Param('n', ParseIntPipe) n: number,
+    @Param('n', ParsePositiveIntPipe) n: number,
   ) {
     return this.files.restore(p, id, n);
   }
