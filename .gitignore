@@ -5,3 +5,6 @@ dist/
 .env.local
 *.log
 docs/superpowers/
+.superpowers/
+test-results/
+playwright-report/

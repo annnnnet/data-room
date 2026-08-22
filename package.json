@@ -1,0 +1,11 @@
+{
+  "name": "data-room",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": { "typescript": "^5.5.4" }
+}
