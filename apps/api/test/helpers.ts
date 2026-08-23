@@ -18,7 +18,7 @@ import { StorageService } from '../src/storage/storage.service';
  * which reads DATABASE_URL/DIRECT_URL from process.env at construction
  * time). Parse the file ourselves before anything else touches Prisma.
  */
-function loadEnv() {
+export function loadEnv() {
   const envPath = path.resolve(__dirname, '../.env');
   if (!fs.existsSync(envPath)) return;
   const raw = fs.readFileSync(envPath, 'utf8');
@@ -50,7 +50,7 @@ function loadEnv() {
  * If DATABASE_URL_TEST is missing, fail loudly instead of silently falling
  * back to whatever DATABASE_URL already points at (Supabase, in dev).
  */
-function useTestDatabase() {
+export function useTestDatabase() {
   const testUrl = process.env.DATABASE_URL_TEST;
   if (!testUrl) {
     throw new Error(

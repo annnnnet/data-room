@@ -6,6 +6,6 @@ import { UserService } from './user.service';
 @Global()
 @Module({
   providers: [AuthGuard, JwtVerifierService, UserService],
-  exports: [AuthGuard, UserService],
+  exports: [AuthGuard, UserService, JwtVerifierService],
 })
 export class AuthModule {}

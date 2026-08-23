@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "pnpm --filter @data-room/shared build",
     "dev": "next dev",
+    "prebuild": "pnpm --filter @data-room/shared build",
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
