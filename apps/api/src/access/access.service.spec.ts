@@ -221,6 +221,18 @@ describe('AccessService.resolve', () => {
     expect(prisma.share.findMany).not.toHaveBeenCalled();
   });
 
+  it('reports accessRootId as the share-bearing node, not the requested node, for an inherited share', async () => {
+    const { svc } = serviceWith(NODE, [{ nodeId: 'mid', role: 'VIEWER', granteeUserId: 'u2' }]);
+    const access = await svc.resolve({ kind: 'user', userId: 'u2' }, 'leaf');
+    expect(access.accessRootId).toBe('mid');
+  });
+
+  it('reports accessRootId as null for an OWNER — there is no boundary to trim to', async () => {
+    const { svc } = serviceWith(NODE, []);
+    const access = await svc.resolve({ kind: 'user', userId: 'owner-1' }, 'leaf');
+    expect(access.accessRootId).toBeNull();
+  });
+
   it('projects the returned node to the declared AccessNode shape only', async () => {
     const { svc } = serviceWith(NODE, []);
     const access = await svc.resolve({ kind: 'user', userId: 'owner-1' }, 'leaf');
@@ -242,6 +254,7 @@ describe('AccessService.requireOwner', () => {
     const { svc } = serviceWith(NODE, []);
     await expect(svc.requireOwner({ kind: 'user', userId: 'owner-1' }, 'leaf')).resolves.toEqual({
       role: 'OWNER',
+      accessRootId: null,
       node: expect.objectContaining({ id: 'leaf' }),
     });
   });

@@ -138,29 +138,21 @@ describe('FileViewerSheet', () => {
     expect(screen.queryByRole('button', { name: /Try again/i })).not.toBeInTheDocument();
   });
 
-  it('hides Restore in the Versions tab when readOnly', async () => {
+  it('has no Versions tab at all when readOnly — version history is owner edit metadata, not part of read-only access', async () => {
     const { api } = await import('@/lib/api');
-    vi.mocked(api.get).mockImplementation(async (path: unknown) => {
+    const getSpy = vi.mocked(api.get).mockImplementation(async (path: unknown) => {
       const p = String(path);
       if (p.includes('download-url')) return { url: 'https://storage.test/signed-inline' };
-      return [
-        {
-          id: 'v1',
-          versionNumber: 1,
-          sizeBytes: 1024,
-          mimeType: 'application/pdf',
-          createdAt: new Date(0).toISOString(),
-          createdByName: 'Bob',
-          isCurrent: true,
-        },
-      ];
+      // A test-only guard: the versions endpoint must never even be
+      // requested for a read-only viewer — not just have its result hidden.
+      throw new Error(`unexpected request in read-only mode: ${p}`);
     });
 
     renderSheet(pdfNode, true);
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Versions' }));
-    await screen.findByText('Version 1');
-    expect(screen.queryByRole('button', { name: /Restore/ })).not.toBeInTheDocument();
+    await screen.findByRole('tab', { name: 'Preview' });
+    expect(screen.queryByRole('tab', { name: 'Versions' })).not.toBeInTheDocument();
+    expect(getSpy.mock.calls.some(([p]) => String(p).includes('/versions'))).toBe(false);
   });
 
   it('downloads a non-PDF file via a signed attachment URL on click', async () => {

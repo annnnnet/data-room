@@ -224,6 +224,29 @@ describe('files', () => {
     expect(res.body.code).toBe('FORBIDDEN');
   });
 
+  // Design decision: version history is owner edit metadata (who uploaded
+  // each version, when) — not the file content itself, which a VIEWER still
+  // gets via download-url. The sharing requirement is read-only access to
+  // the shared *item*, not its edit history, so this is owner-only
+  // regardless of how VIEWER was granted (named-user share or link).
+  it('refuses a named-user viewer listing version history, but lets the owner', async () => {
+    const { fileId, viewerId } = await seedTree(app, { files: ['msa.pdf'], versions: 2, shareRootWith: 'u2' });
+    const res = await app.asUser(viewerId!).get(`/api/files/${fileId}/versions`);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+
+    const ownerRes = await app.asOwner().get(`/api/files/${fileId}/versions`).expect(200);
+    expect(ownerRes.body.map((v: any) => v.versionNumber)).toEqual([2, 1]);
+  });
+
+  it('refuses a link (public share) principal listing version history', async () => {
+    const { root, fileId } = await seedTree(app, { files: ['msa.pdf'], versions: 2 });
+    const share = await app.asOwner().post(`/api/nodes/${root}/shares`).send({ kind: 'LINK' }).expect(201);
+    const res = await app.asLink(share.body.token).get(`/api/files/${fileId}/versions`);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+  });
+
   it('combines a PENDING file with a cursor without ever surfacing it, across pages', async () => {
     const { root } = await seedTree(app, {});
     // 5 READY files (via seedTree's own helper), interleaved with 5 PENDING

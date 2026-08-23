@@ -3,7 +3,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { AuthProvider } from '@/lib/auth';
-import { ShareTokenProvider } from '@/lib/share-token';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/toast';
 
@@ -23,11 +22,9 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <ShareTokenProvider token={null}>
-          <TooltipProvider>
-            <Toaster>{children}</Toaster>
-          </TooltipProvider>
-        </ShareTokenProvider>
+        <TooltipProvider>
+          <Toaster>{children}</Toaster>
+        </TooltipProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

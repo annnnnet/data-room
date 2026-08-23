@@ -342,6 +342,46 @@ describe('sharing', () => {
     expect(res.body.code).toBe('SHARE_REVOKED');
   });
 
+  // IMPORTANT-4: the ancestor names above the share root must never reach
+  // the response at all — trimming only in the frontend still leaves them
+  // sitting in the network tab and the query cache.
+  it("trims a link principal's breadcrumbs to the share root, but leaves the owner's full chain untouched", async () => {
+    const { root, child, nested } = await seedTree(app, { nested: ['Legal', 'Contracts'] });
+    const share = await app.asOwner().post(`/api/nodes/${nested}/shares`).send({ kind: 'LINK' }).expect(201);
+
+    const linkRes = await app.asLink(share.body.token).get(`/api/nodes/${nested}`).expect(200);
+    expect(linkRes.body.breadcrumbs.map((b: any) => b.id)).toEqual([nested]);
+    expect(linkRes.body.breadcrumbs.map((b: any) => b.name)).toEqual(['Contracts']);
+    // Belt and braces: the ancestor names must not appear anywhere in the
+    // payload, not just be absent from `breadcrumbs` specifically.
+    expect(JSON.stringify(linkRes.body)).not.toContain('Acme Acquisition');
+    expect(JSON.stringify(linkRes.body)).not.toContain('Legal');
+
+    const ownerRes = await app.asOwner().get(`/api/nodes/${nested}`).expect(200);
+    expect(ownerRes.body.breadcrumbs.map((b: any) => b.id)).toEqual([root, child, nested]);
+    expect(ownerRes.body.breadcrumbs.map((b: any) => b.name)).toEqual([
+      'Acme Acquisition',
+      'Legal',
+      'Contracts',
+    ]);
+  });
+
+  // Same as above, but the link is fetching a node *below* the share root —
+  // proving the trim is anchored to the node that granted access
+  // (`AccessService`'s `accessRootId`), not to the node being fetched.
+  it("trims to the share root even when browsing a descendant of it", async () => {
+    const { nested, nestedChild } = await seedTree(app, {
+      nested: ['Legal', 'Contracts'],
+      nestedFiles: ['msa.pdf'],
+    });
+    const share = await app.asOwner().post(`/api/nodes/${nested}/shares`).send({ kind: 'LINK' }).expect(201);
+
+    const res = await app.asLink(share.body.token).get(`/api/nodes/${nestedChild}`).expect(200);
+    expect(res.body.breadcrumbs.map((b: any) => b.id)).toEqual([nested, nestedChild]);
+    expect(JSON.stringify(res.body)).not.toContain('Acme Acquisition');
+    expect(JSON.stringify(res.body)).not.toContain('"name":"Legal"');
+  });
+
   // Prisma drops an `undefined` filter, so an unvalidated missing token turns
   // `findFirst({ where: { token } })` into "any live share in the database" —
   // an anonymous cross-tenant disclosure of node ids and room names.

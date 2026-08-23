@@ -26,13 +26,18 @@ export type BreadcrumbLayout = {
  * simply not in the array Breadcrumbs (or the deleted-ancestor walk) ever
  * sees, not just hidden by styling.
  *
- * Falls back to the untrimmed chain if `rootId` isn't present — that would
- * mean the current node is outside the shared subtree, which the API's
- * access check should already have prevented.
+ * Fails closed if `rootId` isn't present in the chain: that would mean the
+ * current node is outside the shared subtree, which the API's access check
+ * should already have prevented — but "should never happen" is exactly the
+ * case a security-critical trim must not answer by handing back the full,
+ * untrimmed chain. Falling back to just the current crumb (never `[]` when
+ * there's a current crumb to show) keeps the UI coherent — a page is still
+ * showing *a* location — without ever exposing an ancestor above the root.
  */
 export function trimBreadcrumbsToRoot(breadcrumbs: Crumb[], rootId: string): Crumb[] {
   const index = breadcrumbs.findIndex((c) => c.id === rootId);
-  return index === -1 ? breadcrumbs : breadcrumbs.slice(index);
+  if (index !== -1) return breadcrumbs.slice(index);
+  return breadcrumbs.length > 0 ? breadcrumbs.slice(-1) : [];
 }
 
 export function buildBreadcrumbLayout(breadcrumbs: Crumb[], threshold = 4): BreadcrumbLayout {

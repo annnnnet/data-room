@@ -80,6 +80,16 @@ function ShareRoot({
     return <SharedFileView node={detail.data} dataRoomName={dataRoomName} />;
   }
 
+  // Reaches here in three cases: still loading, the root is a FOLDER, or
+  // this query failed. `FolderBrowser` below re-mounts a `useQuery` with
+  // the *exact same key* (`['node', rootNodeId]`), so a pending or errored
+  // `detail` here is inherited from the cache rather than refetched —
+  // `FolderBrowser` already has its own loading/error handling for it.
+  // Deliberate, not an accident of the keys matching: asserted by the two
+  // `queryKey`s staying textually identical (see `FolderBrowser`'s own
+  // `useQuery(['node', nodeId], ...)`, called here with `nodeId ===
+  // rootNodeId`) — if that ever drifts, `detail.isError` here would start
+  // rendering a blank/stuck screen instead of `FolderBrowser`'s ErrorState.
   return (
     <FolderBrowser
       token={token}

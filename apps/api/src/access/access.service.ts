@@ -15,7 +15,19 @@ export type AccessNode = {
   deletedAt: Date | null;
 };
 
-export type Access = { node: AccessNode; role: 'OWNER' | 'VIEWER' };
+export type Access = {
+  node: AccessNode;
+  role: 'OWNER' | 'VIEWER';
+  /**
+   * The id of the node whose share actually granted access — the boundary
+   * a non-owner's view of the ancestor chain must be trimmed to, so a link
+   * or per-user grant on "Contracts" never lets its breadcrumbs (or
+   * anything else derived from the chain) reach up to "Legal" or the room
+   * root. `null` for an OWNER, who has no such boundary — they see the
+   * full chain.
+   */
+  accessRootId: string | null;
+};
 
 @Injectable()
 export class AccessService {
@@ -39,6 +51,7 @@ export class AccessService {
     const isOwner = principal.kind === 'user' && principal.userId === node.dataRoom.ownerId;
 
     let role: 'OWNER' | 'VIEWER' | null = isOwner ? 'OWNER' : null;
+    let accessRootId: string | null = null;
 
     if (!role && principal.kind !== 'anonymous') {
       // Defensive guard: if principal.kind were ever anything other than
@@ -57,10 +70,13 @@ export class AccessService {
           nodeId: { in: scope },
           ...liveShareForPrincipal(principal),
         },
-        select: { id: true },
+        select: { id: true, nodeId: true },
         take: 1,
       });
-      if (shares.length > 0) role = 'VIEWER';
+      if (shares.length > 0) {
+        role = 'VIEWER';
+        accessRootId = shares[0].nodeId;
+      }
     }
 
     if (!role) throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
@@ -87,7 +103,7 @@ export class AccessService {
       deletedAt: node.deletedAt,
     };
 
-    return { node: projectedNode, role };
+    return { node: projectedNode, role, accessRootId };
   }
 
   async requireOwner(

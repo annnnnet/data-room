@@ -50,6 +50,13 @@ export function LinkTab({ nodeId }: { nodeId: string }) {
   const [expiry, setExpiry] = useState<ExpiryChoice>('never');
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // The UI only ever offers to create one link share per node (the "create"
+  // form below is hidden once any exists), but nothing server-side actually
+  // enforces that as an invariant, so this must tolerate more than one
+  // somehow existing (e.g. two racing "Create link" clicks). `shares.data`
+  // is already ordered newest-first (see the API), so this manages the most
+  // recently created one — any older extra survives as a live, functioning
+  // link, just not one this tab surfaces a Revoke button for.
   const link = shares.data?.find((s) => s.kind === 'LINK');
 
   const create = useMutation({
@@ -82,6 +89,13 @@ export function LinkTab({ nodeId }: { nodeId: string }) {
     },
   });
 
+  function handleCreate() {
+    setCreateError(null);
+    const opt = EXPIRY_OPTIONS.find((o) => o.value === expiry);
+    const expiresAt = opt?.days ? new Date(Date.now() + opt.days * 86_400_000).toISOString() : undefined;
+    create.mutate(expiresAt);
+  }
+
   if (shares.isPending) return <TableSkeleton variant="rows" rows={2} label="Loading link" />;
   if (shares.isError) {
     return (
@@ -90,13 +104,6 @@ export function LinkTab({ nodeId }: { nodeId: string }) {
   }
 
   if (!link) {
-    function handleCreate() {
-      setCreateError(null);
-      const opt = EXPIRY_OPTIONS.find((o) => o.value === expiry);
-      const expiresAt = opt?.days ? new Date(Date.now() + opt.days * 86_400_000).toISOString() : undefined;
-      create.mutate(expiresAt);
-    }
-
     return (
       <div className="flex flex-col gap-4">
         <p className="text-sm text-muted-foreground">
@@ -176,8 +183,12 @@ export function LinkTab({ nodeId }: { nodeId: string }) {
           )}
         </Button>
       </div>
-      <p role="status" className="-mt-2 text-xs text-muted-foreground">
-        {copied ? 'Copied to clipboard' : ' '}
+      {/* A fixed-height live region, not a text node holding a literal
+          space — the height (one line of `text-xs`) is what reserves the
+          layout slot; the content itself stays genuinely empty until
+          there's something to announce. */}
+      <p role="status" className="-mt-2 h-4 text-xs text-muted-foreground">
+        {copied ? 'Copied to clipboard' : null}
       </p>
 
       <p className="text-sm text-muted-foreground">

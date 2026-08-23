@@ -77,9 +77,24 @@ export function FolderBrowser({
     lastKnown: lastKnownTrimmed,
   });
 
-  useDocumentTitle(!isGone ? detail.data?.name : undefined);
+  useDocumentTitle(
+    !isGone ? detail.data?.name : undefined,
+    // Must match the SSR title set by the share routes' own page.tsx
+    // metadata — otherwise this effect's first run (before the folder name
+    // is known) briefly clobbers it with the owner-view default.
+    token ? 'Shared item – Data Room' : undefined,
+  );
 
   if (detail.isPending) return <PageSpinner />;
+
+  if (isGone && goneState === 'gone') {
+    return (
+      <ErrorState
+        title="This folder was deleted"
+        message="The owner removed it and there's nowhere else here to show you."
+      />
+    );
+  }
 
   if (isGone) {
     return (

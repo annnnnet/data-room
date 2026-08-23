@@ -16,6 +16,24 @@ const INCLUDE = {
   _count: { select: { versions: true } },
 } as const;
 
+/**
+ * Cuts a root-to-current breadcrumb chain down to start at `accessRootId` —
+ * the server-side twin of the web app's `trimBreadcrumbsToRoot`. Fails
+ * closed: if `accessRootId` isn't present in the chain (should be
+ * impossible — `AccessService.resolve` derived it from this same node's
+ * ancestor path — but "should be impossible" is exactly the case this
+ * exists to guard), returns just the current crumb rather than the full,
+ * untrimmed chain.
+ */
+function trimBreadcrumbsToAccessRoot(
+  breadcrumbs: { id: string; name: string }[],
+  accessRootId: string,
+): { id: string; name: string }[] {
+  const index = breadcrumbs.findIndex((c) => c.id === accessRootId);
+  if (index !== -1) return breadcrumbs.slice(index);
+  return breadcrumbs.length > 0 ? breadcrumbs.slice(-1) : [];
+}
+
 @Injectable()
 export class NodesService {
   constructor(
@@ -24,7 +42,7 @@ export class NodesService {
   ) {}
 
   async detail(principal: Principal, id: string): Promise<NodeDetail> {
-    const { role } = await this.access.resolve(principal, id);
+    const { role, accessRootId } = await this.access.resolve(principal, id);
     const node = await this.prisma.node.findUnique({ where: { id }, include: INCLUDE });
     if (!node) throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
     // A FILE with no currentVersionId is a half-uploaded (PENDING) file and
@@ -42,11 +60,22 @@ export class NodesService {
       where: { id: { in: chain } },
       select: { id: true, name: true },
     });
-    const breadcrumbs = chain.map((cid) => {
+    const fullBreadcrumbs = chain.map((cid) => {
       const r = rows.find((x) => x.id === cid);
       if (!r) throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
       return { id: r.id, name: r.name };
     });
+
+    // Trimmed in the response itself, not just by the client — an OWNER
+    // keeps the full chain (there's no boundary to hide from them), but a
+    // share/per-user viewer must never receive ancestor names above the
+    // node that actually granted them access: those names sit in the
+    // network tab and the query cache either way, so hiding them from
+    // rendering isn't the same as withholding them.
+    const breadcrumbs =
+      role === 'OWNER' || !accessRootId
+        ? fullBreadcrumbs
+        : trimBreadcrumbsToAccessRoot(fullBreadcrumbs, accessRootId);
 
     return { ...toNodeDto(node), breadcrumbs, myRole: role };
   }

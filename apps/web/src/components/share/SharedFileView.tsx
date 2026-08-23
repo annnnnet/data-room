@@ -1,41 +1,22 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { Download, File as FileIcon } from 'lucide-react';
+import { File as FileIcon } from 'lucide-react';
 import type { NodeDetail } from '@data-room/shared';
-import { ApiError, api } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { ErrorState } from '@/components/states/ErrorState';
-import { Skeleton } from '@/components/ui/skeleton';
 import { formatBytes } from '@/lib/format';
-
-type DownloadUrlResponse = { url: string };
+import { FilePreview } from '@/components/viewer/FilePreview';
 
 /**
  * A share can point straight at a file, not just a folder — this is that
  * landing page. Deliberately smaller than the owner's `FileViewerSheet`:
- * read-only, no version history (there's nothing to restore), just a
- * preview and a download.
+ * read-only, no version history (there's nothing to restore, and edit
+ * history is owner metadata the sharing requirement never asks a link
+ * recipient to see — see the design note on `VersionHistoryList`), just a
+ * preview and a download. The preview itself is the exact same
+ * `FilePreview` the owner's viewer sheet uses, not a copy — the two had
+ * already drifted once (a mime-normalisation fix landed in only one of
+ * them) before being unified here.
  */
 export function SharedFileView({ node, dataRoomName }: { node: NodeDetail; dataRoomName: string }) {
-  const isPdf = node.mimeType === 'application/pdf';
-
-  const inline = useQuery({
-    queryKey: ['download-url', node.id, 'inline'],
-    queryFn: () =>
-      api.get<DownloadUrlResponse>(`/api/files/${node.id}/download-url?disposition=inline`),
-    enabled: isPdf,
-    retry: false,
-  });
-
-  const download = useMutation({
-    mutationFn: () =>
-      api.get<DownloadUrlResponse>(`/api/files/${node.id}/download-url?disposition=attachment`),
-    onSuccess: (data) => {
-      window.location.href = data.url;
-    },
-  });
-
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="rounded-lg border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
@@ -52,41 +33,7 @@ export function SharedFileView({ node, dataRoomName }: { node: NodeDetail; dataR
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden rounded-lg border">
-        {isPdf ? (
-          inline.isPending ? (
-            <div className="h-full w-full p-4">
-              <Skeleton className="h-full min-h-64 w-full" />
-            </div>
-          ) : inline.isError ? (
-            <div className="flex h-full items-center justify-center p-6">
-              <ErrorState
-                message={
-                  inline.error instanceof ApiError ? inline.error.message : 'Could not load a preview.'
-                }
-                onRetry={() => inline.refetch()}
-              />
-            </div>
-          ) : (
-            <iframe src={inline.data.url} className="h-full min-h-[60vh] w-full border-0" title={node.name} />
-          )
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
-            <p className="max-w-xs text-sm text-muted-foreground">
-              Preview isn&apos;t available for this file type.
-            </p>
-            <Button type="button" onClick={() => download.mutate()} disabled={download.isPending}>
-              <Download aria-hidden="true" />
-              {download.isPending ? 'Preparing download…' : 'Download'}
-            </Button>
-            {download.isError && (
-              <p role="alert" className="text-sm text-destructive">
-                {download.error instanceof ApiError
-                  ? download.error.message
-                  : 'Could not download this file. Try again.'}
-              </p>
-            )}
-          </div>
-        )}
+        <FilePreview node={node} />
       </div>
     </div>
   );

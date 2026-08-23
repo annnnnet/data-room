@@ -7,15 +7,26 @@ import { ApiError, api } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
 import { ancestorCandidates } from '@/components/browser/ancestor-walk';
 
-export type GoneRedirectState = 'checking' | 'redirecting';
+export type GoneRedirectState = 'checking' | 'redirecting' | 'gone';
 
 /**
  * On `NODE_GONE`, walks outward through the last-known breadcrumb trail
  * (nearest ancestor first) probing each with a real request until one
  * still resolves, then toasts and redirects there. Falls back to `basePath`
- * alone (no id) when nothing in the trail survives (or nothing was cached
- * at all — e.g. a direct link to an already-deleted node); that route has
- * its own terminal "not found" state as a last resort.
+ * alone (no id) when the trail has candidates but none of them survive (or
+ * nothing was cached at all — e.g. a direct link to an already-deleted
+ * node); that route has its own terminal "not found" state as a last
+ * resort, for the owner view.
+ *
+ * When the trail has *no* candidates at all — the gone node is itself the
+ * top of the visible chain, with nothing above it left to try — there is
+ * nothing `basePath` could show that isn't the very node that just 410'd.
+ * On a share this is the share's own root: `basePath` (`/s/{token}/f`, no
+ * id) resolves right back to that same root and 410s again, forever, since
+ * nothing here or in the route ever changes state after that. This is
+ * exactly the scenario that used to loop — `'gone'` gives it the terminal
+ * state it was missing, instead of attempting a redirect that can only ever
+ * land on the thing that's already gone.
  *
  * `basePath` is the folder route prefix to redirect within — `/r/{roomId}/f`
  * for the owner view, `/s/{token}/f` for a share. `lastKnown.breadcrumbs`
@@ -49,6 +60,18 @@ export function useNodeGoneRedirect({
     setState('checking');
 
     (async () => {
+      // The gone node's own (trimmed) breadcrumb trail had nothing above
+      // it — it *was* the top of the visible chain (a share's own root, or
+      // — degenerately — the room root). Unlike "nothing was cached at all"
+      // below, `basePath` here would resolve right back to this same gone
+      // node, not to some other, presumably-alive root, so a redirect
+      // would only loop. Stop at a terminal state instead.
+      if (lastKnown && lastKnown.breadcrumbs.length <= 1) {
+        if (cancelled) return;
+        setState('gone');
+        return;
+      }
+
       const candidates = lastKnown ? ancestorCandidates(lastKnown.breadcrumbs) : [];
       let survivorId: string | null = null;
 

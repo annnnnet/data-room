@@ -61,3 +61,38 @@ describe('buildBreadcrumbLayout', () => {
     expect(buildBreadcrumbLayout(chain, 3).collapsed).toBe(false);
   });
 });
+
+describe('trimBreadcrumbsToRoot', () => {
+  it('cuts everything above the root when the root is mid-chain', () => {
+    const chain = [crumb('room'), crumb('acme'), crumb('legal'), crumb('contracts')];
+    expect(trimBreadcrumbsToRoot(chain, 'legal')).toEqual([crumb('legal'), crumb('contracts')]);
+  });
+
+  it('is a no-op when the root is already the head of the chain', () => {
+    const chain = [crumb('legal'), crumb('contracts')];
+    expect(trimBreadcrumbsToRoot(chain, 'legal')).toEqual(chain);
+  });
+
+  it('is a no-op when the root is the sole (current) crumb', () => {
+    const chain = [crumb('contracts')];
+    expect(trimBreadcrumbsToRoot(chain, 'contracts')).toEqual(chain);
+  });
+
+  it('fails closed to just the current crumb when the root is absent from the chain', () => {
+    // This must never happen given a correct API — the access check is
+    // supposed to guarantee the root is always in the chain — but the trim
+    // exists specifically to defend against exactly this "should never
+    // happen" case, so it must not hand back the untrimmed chain here.
+    const chain = [crumb('room'), crumb('acme'), crumb('legal'), crumb('contracts')];
+    const trimmed = trimBreadcrumbsToRoot(chain, 'not-in-chain');
+    expect(trimmed).toEqual([crumb('contracts')]);
+    // In particular, the ancestors above the (missing) share root must never
+    // leak through.
+    expect(trimmed.map((c) => c.id)).not.toContain('room');
+    expect(trimmed.map((c) => c.id)).not.toContain('acme');
+  });
+
+  it('fails closed to an empty array when the root is absent and the chain itself is empty', () => {
+    expect(trimBreadcrumbsToRoot([], 'not-in-chain')).toEqual([]);
+  });
+});

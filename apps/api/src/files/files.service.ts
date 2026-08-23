@@ -211,8 +211,17 @@ export class FilesService {
     };
   }
 
+  /**
+   * Owner-only. Version history is edit metadata — who uploaded each
+   * version and when — not the file content itself. The sharing
+   * requirement is "read-only access to the shared item"; it says nothing
+   * about handing a link (or per-user) recipient the owner's edit history,
+   * and there's no restore affordance for them to justify seeing it either.
+   * A VIEWER still gets the current content via `download-url` — this only
+   * withholds the *history* of how it got there.
+   */
   async versions(principal: Principal, nodeId: string) {
-    await this.access.resolve(principal, nodeId);
+    await this.access.requireOwner(principal, nodeId);
     const node = await this.prisma.node.findFirst({
       where: { id: nodeId },
       include: {
