@@ -4,13 +4,23 @@ import type { OnConflict, UploadUrlResponse } from '@data-room/shared';
 import { api, ApiError } from '@/lib/api';
 import {
   initialState,
+  makeTaskId,
   uploadReducer,
+  type NewTask,
   type UploadAction,
   type UploadState,
   type UploadTask,
 } from './upload-queue';
 
 export type { UploadTask, UploadStatus } from './upload-queue';
+
+/** Rejects with this — never a bare `Error` — so a cancel can never be confused with a real network/HTTP failure. */
+class UploadCancelledError extends Error {
+  constructor() {
+    super('cancelled');
+    this.name = 'UploadCancelledError';
+  }
+}
 
 /**
  * Uploads bytes for one task over XHR (not `fetch`) so `upload.onprogress`
@@ -36,7 +46,7 @@ function putBytes(
       else reject(new Error(`Upload failed (${xhr.status})`));
     };
     xhr.onerror = () => reject(new Error('Network error during upload'));
-    xhr.onabort = () => reject(new Error('cancelled'));
+    xhr.onabort = () => reject(new UploadCancelledError());
     xhr.open('PUT', uploadUrl);
     xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
     xhr.send(file);
@@ -49,8 +59,14 @@ function putBytes(
  * time is driven per effect run, gated by the reducer's own `uploading`
  * status (set by `pump`, capped at `MAX_CONCURRENT`), so at most three of
  * these run concurrently without any extra bookkeeping here.
+ *
+ * Not parameterised by `parentId` — each task carries its own `parentId`
+ * from the moment it's added (see `upload-queue.ts`), so a task keeps
+ * uploading into the folder it was dropped into even if the user has since
+ * navigated to a different one. This hook is meant to be instantiated once
+ * (by `UploadProvider`) and shared across every folder in the room.
  */
-export function useUpload(parentId: string) {
+export function useUpload() {
   const [state, dispatch]: [UploadState, Dispatch<UploadAction>] = useReducer(
     uploadReducer,
     initialState,
@@ -61,10 +77,14 @@ export function useUpload(parentId: string) {
   // the effect below (which re-runs on every dispatch) never starts a
   // second XHR for a task that's already uploading.
   const running = useRef(new Set<string>());
+  // Tracks ids cancelled by the user so `runTask` can bail between steps
+  // even when there's no live XHR to abort — e.g. cancelling while the
+  // upload-url request or the /complete call is still in flight.
+  const cancelledIds = useRef(new Set<string>());
 
   const invalidate = useCallback(
-    () => qc.invalidateQueries({ queryKey: ['children', parentId] }),
-    [qc, parentId],
+    (parentId: string) => qc.invalidateQueries({ queryKey: ['children', parentId] }),
+    [qc],
   );
 
   const runTask = useCallback(
@@ -74,7 +94,7 @@ export function useUpload(parentId: string) {
         let res: UploadUrlResponse;
         try {
           res = await api.post<UploadUrlResponse>('/api/files/upload-url', {
-            parentId,
+            parentId: task.parentId,
             name: task.name,
             sizeBytes: task.file.size,
             mimeType: task.file.type || 'application/pdf',
@@ -98,6 +118,8 @@ export function useUpload(parentId: string) {
           return;
         }
 
+        if (cancelledIds.current.has(task.id)) return;
+
         try {
           await putBytes(
             res.uploadUrl,
@@ -106,14 +128,15 @@ export function useUpload(parentId: string) {
             (abort) => aborts.current.set(task.id, abort),
           );
         } catch (err) {
-          const cancelled = err instanceof Error && err.message === 'cancelled';
-          if (!cancelled) {
+          if (!(err instanceof UploadCancelledError)) {
             dispatch({ type: 'error', id: task.id, error: 'Upload interrupted. Try again.' });
           }
           return;
         } finally {
           aborts.current.delete(task.id);
         }
+
+        if (cancelledIds.current.has(task.id)) return;
 
         try {
           await api.post(`/api/files/${res.nodeId}/complete`, { versionId: res.versionId });
@@ -128,14 +151,16 @@ export function useUpload(parentId: string) {
           return;
         }
 
-        dispatch({ type: 'done', id: task.id });
-        invalidate();
+        if (cancelledIds.current.has(task.id)) return;
+
+        dispatch({ type: 'done', id: task.id, name: res.finalName });
+        invalidate(task.parentId);
       } finally {
         running.current.delete(task.id);
         dispatch({ type: 'pump' });
       }
     },
-    [parentId, invalidate],
+    [invalidate],
   );
 
   // Kicks off any task the reducer just promoted to `uploading` and hasn't
@@ -149,18 +174,21 @@ export function useUpload(parentId: string) {
     }
   }, [state.tasks, runTask]);
 
-  const addFiles = useCallback((files: File[]) => {
+  const addFiles = useCallback((files: File[], parentId: string) => {
     if (files.length === 0) return;
-    dispatch({ type: 'add', files });
+    const tasks: NewTask[] = files.map((file) => ({ id: makeTaskId(), file, parentId }));
+    dispatch({ type: 'add', tasks });
     dispatch({ type: 'pump' });
   }, []);
 
   const retry = useCallback((id: string) => {
+    cancelledIds.current.delete(id);
     dispatch({ type: 'retry', id });
     dispatch({ type: 'pump' });
   }, []);
 
   const cancel = useCallback((id: string) => {
+    cancelledIds.current.add(id);
     aborts.current.get(id)?.();
     dispatch({ type: 'cancel', id });
   }, []);

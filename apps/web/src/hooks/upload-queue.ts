@@ -5,11 +5,21 @@ export const MAX_CONCURRENT = 3;
 
 export type UploadStatus = 'queued' | 'uploading' | 'done' | 'error' | 'conflict' | 'cancelled';
 
+/** A status a task never leaves once reached — see the reducer's terminal-state guard. */
+const TERMINAL_STATUSES: ReadonlySet<UploadStatus> = new Set(['cancelled']);
+
 export type UploadTask = {
   id: string;
   file: File;
   /** The name currently being requested — starts as `file.name`, may change on a "keep both" resolution. */
   name: string;
+  /**
+   * The folder this task uploads into, captured at `add` time. Using this
+   * (never the hook's live `parentId`) is what keeps an in-flight upload
+   * landing in the folder it was dropped into even if the user has since
+   * navigated elsewhere.
+   */
+  parentId: string;
   status: UploadStatus;
   /** 0–100. */
   progress: number;
@@ -24,11 +34,14 @@ export type UploadState = {
 
 export const initialState: UploadState = { tasks: [] };
 
+/** One task's id plus the identity it's minted with — computed by the caller so `add` stays pure. */
+export type NewTask = { id: string; file: File; parentId: string };
+
 export type UploadAction =
-  | { type: 'add'; files: File[] }
+  | { type: 'add'; tasks: NewTask[] }
   | { type: 'pump' }
   | { type: 'progress'; id: string; progress: number }
-  | { type: 'done'; id: string }
+  | { type: 'done'; id: string; name?: string }
   | { type: 'error'; id: string; error: string }
   | { type: 'conflict'; id: string; suggestedName: string }
   | { type: 'resolveConflict'; id: string; onConflict: OnConflict | 'SKIP' }
@@ -37,7 +50,7 @@ export type UploadAction =
   | { type: 'clearFinished' };
 
 let nextId = 0;
-/** Exposed so `useUpload` can create ids the same way tasks it adds do, if ever needed. */
+/** Called from `addFiles`, outside the reducer, so ids are stable if React replays the `add` action. */
 export function makeTaskId(): string {
   nextId += 1;
   return `upload-${Date.now()}-${nextId}`;
@@ -47,12 +60,26 @@ function mapTask(state: UploadState, id: string, fn: (t: UploadTask) => UploadTa
   return { tasks: state.tasks.map((t) => (t.id === id ? fn(t) : t)) };
 }
 
+/**
+ * Applies `fn` to the task unless it has already reached a terminal status
+ * (currently just `cancelled`) — a `progress`/`done`/`error`/`conflict`
+ * dispatch that loses a race with a cancel must not resurrect the row.
+ */
+function mapUnlessTerminal(
+  state: UploadState,
+  id: string,
+  fn: (t: UploadTask) => UploadTask,
+): UploadState {
+  return mapTask(state, id, (t) => (TERMINAL_STATUSES.has(t.status) ? t : fn(t)));
+}
+
 export function uploadReducer(state: UploadState, action: UploadAction): UploadState {
   switch (action.type) {
     case 'add': {
-      const added: UploadTask[] = action.files.map((file) => ({
-        id: makeTaskId(),
+      const added: UploadTask[] = action.tasks.map(({ id, file, parentId }) => ({
+        id,
         file,
+        parentId,
         name: file.name,
         status: 'queued',
         progress: 0,
@@ -76,16 +103,25 @@ export function uploadReducer(state: UploadState, action: UploadAction): UploadS
     }
 
     case 'progress':
-      return mapTask(state, action.id, (t) => ({ ...t, progress: action.progress }));
+      return mapUnlessTerminal(state, action.id, (t) => ({ ...t, progress: action.progress }));
 
     case 'done':
-      return mapTask(state, action.id, (t) => ({ ...t, status: 'done', progress: 100 }));
+      return mapUnlessTerminal(state, action.id, (t) => ({
+        ...t,
+        status: 'done',
+        progress: 100,
+        name: action.name ?? t.name,
+      }));
 
     case 'error':
-      return mapTask(state, action.id, (t) => ({ ...t, status: 'error', error: action.error }));
+      return mapUnlessTerminal(state, action.id, (t) => ({
+        ...t,
+        status: 'error',
+        error: action.error,
+      }));
 
     case 'conflict':
-      return mapTask(state, action.id, (t) => ({
+      return mapUnlessTerminal(state, action.id, (t) => ({
         ...t,
         status: 'conflict',
         suggestedName: action.suggestedName,

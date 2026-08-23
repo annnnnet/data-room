@@ -57,7 +57,7 @@ export function ConflictDialog({
               checked={applyToAll}
               onChange={(e) => setApplyToAll(e.target.checked)}
             />
-            Apply to all {remainingCount} remaining conflicts
+            Apply to all {remainingCount - 1} remaining conflicts
           </label>
         )}
 

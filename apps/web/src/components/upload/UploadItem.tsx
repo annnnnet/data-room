@@ -3,7 +3,7 @@
 import { CheckCircle2, FileText, TriangleAlert, X } from 'lucide-react';
 import type { UploadTask } from '@/hooks/upload-queue';
 import { Button } from '@/components/ui/button';
-import { Progress, ProgressTrack, ProgressIndicator } from '@/components/ui/progress';
+import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 
 function StatusIcon({ status }: { status: UploadTask['status'] }) {
@@ -57,11 +57,10 @@ export function UploadItem({
           {task.name}
         </p>
         {task.status === 'uploading' || task.status === 'queued' ? (
-          <Progress value={task.status === 'uploading' ? task.progress : 0} className="mt-1 gap-1">
-            <ProgressTrack className="h-1">
-              <ProgressIndicator />
-            </ProgressTrack>
-          </Progress>
+          <Progress
+            value={task.status === 'uploading' ? task.progress : 0}
+            className="mt-1 gap-1"
+          />
         ) : null}
         <p
           className={cn(

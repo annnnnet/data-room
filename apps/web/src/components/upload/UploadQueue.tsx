@@ -11,6 +11,11 @@ import { UploadItem } from './UploadItem';
  * positioning (full-width with side margins on phones, a capped card from
  * `sm` up) so it never covers the whole screen on a 375px viewport.
  * Collapsible so uploads can keep running while the user keeps browsing.
+ *
+ * Stacked above the toast viewport (`bottom-24` vs. the viewport's
+ * `bottom-4`) rather than sharing its coordinates — otherwise a toast (e.g.
+ * the non-PDF rejection fired by the very drop that populates this dock)
+ * renders on top of it, hiding most of the dock on a narrow screen.
  */
 export function UploadQueue({
   tasks,
@@ -35,7 +40,7 @@ export function UploadQueue({
   const errorCount = visible.filter((t) => t.status === 'error').length;
 
   return (
-    <div className="fixed inset-x-4 bottom-4 z-30 mx-auto w-auto max-w-sm sm:right-4 sm:left-auto sm:mx-0 sm:w-96">
+    <div className="fixed inset-x-4 bottom-24 z-30 mx-auto w-auto max-w-sm sm:right-4 sm:left-auto sm:mx-0 sm:w-96">
       <div className="overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg">
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <UploadCloud className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
