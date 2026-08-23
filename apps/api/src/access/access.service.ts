@@ -24,7 +24,11 @@ export class AccessService {
    * A missing node and an inaccessible node are indistinguishable to the
    * caller by design: 403 would confirm the id exists.
    */
-  async resolve(principal: Principal, nodeId: string): Promise<Access> {
+  async resolve(
+    principal: Principal,
+    nodeId: string,
+    opts?: { allowDeleted?: boolean },
+  ): Promise<Access> {
     const node = await this.prisma.node.findUnique({
       where: { id: nodeId },
       include: { dataRoom: { select: { ownerId: true } } },
@@ -66,7 +70,15 @@ export class AccessService {
     // The role check MUST precede the deletedAt check: returning 410 before
     // confirming access would let a stranger learn the id exists (and was
     // deleted) purely from the ordering of errors, defeating the 404 disguise.
-    if (node.deletedAt) throw new AppError('NODE_GONE', 'This item was deleted by the owner', 410);
+    //
+    // `allowDeleted` lets an OWNER through regardless (e.g. revoking a
+    // share on a soft-deleted node is legitimate — the deletion itself
+    // doesn't need to be undone to manage who could see the content while
+    // it existed). It never relaxes anything for a VIEWER: their access is
+    // still cut off the moment the node is gone.
+    if (node.deletedAt && !(opts?.allowDeleted && role === 'OWNER')) {
+      throw new AppError('NODE_GONE', 'This item was deleted by the owner', 410);
+    }
 
     const projectedNode: AccessNode = {
       id: node.id,
@@ -81,8 +93,12 @@ export class AccessService {
     return { node: projectedNode, role };
   }
 
-  async requireOwner(principal: Principal, nodeId: string): Promise<Access> {
-    const access = await this.resolve(principal, nodeId);
+  async requireOwner(
+    principal: Principal,
+    nodeId: string,
+    opts?: { allowDeleted?: boolean },
+  ): Promise<Access> {
+    const access = await this.resolve(principal, nodeId, opts);
     if (access.role !== 'OWNER') {
       throw new AppError('FORBIDDEN', 'Read-only access', 403);
     }

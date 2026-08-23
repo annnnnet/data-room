@@ -12,16 +12,42 @@ export class UserService {
   /** The local User row is the FK target for ownership and shares. */
   async upsertFromClaims(claims: JWTPayload) {
     const sub = String(claims.sub);
-    const email = String(claims.email ?? `${sub}@unknown.local`);
+    // Postgres' unique index on User.email is case-sensitive; normalise to
+    // lowercase on every write so it matches how invites are stored (see
+    // SharesService.create) and reconciliation below compares consistently.
+    const email = String(claims.email ?? `${sub}@unknown.local`).toLowerCase();
     const meta = (claims.user_metadata ?? {}) as Record<string, string>;
+    // Supabase's GoTrue puts a top-level `email_verified` boolean on the
+    // access-token JWT that reflects the *account's* confirmed status
+    // (auth.users.email_confirmed_at), separate from
+    // `user_metadata.email_verified`, which can be whatever an OAuth
+    // provider (or, for a password sign-up, the client itself) supplied at
+    // signup time and must not be trusted for authorization. Only the
+    // top-level claim is treated as a verification signal here; anything
+    // else — missing, not `true`, or only present under user_metadata — is
+    // treated as unverified.
+    const emailVerified = claims.email_verified === true;
 
     try {
-      const user = await this.prisma.user.upsert({
-        where: { supabaseSub: sub },
-        update: { email, name: meta.full_name, avatarUrl: meta.avatar_url },
-        create: { supabaseSub: sub, email, name: meta.full_name, avatarUrl: meta.avatar_url },
-      });
-      await this.reconcilePendingShares(user);
+      // upsert() alone can't tell us whether it created or updated the row,
+      // and that distinction is exactly the gate we need: reconciliation
+      // issues a write against every pending-invite row for this email, so
+      // it must not run on the hot path of "already-registered user makes
+      // an API call" — only at the one moment it can matter, when the user
+      // row is first created and their address is confirmed.
+      const existing = await this.prisma.user.findUnique({ where: { supabaseSub: sub } });
+      const user = existing
+        ? await this.prisma.user.update({
+            where: { supabaseSub: sub },
+            data: { email, name: meta.full_name, avatarUrl: meta.avatar_url },
+          })
+        : await this.prisma.user.create({
+            data: { supabaseSub: sub, email, name: meta.full_name, avatarUrl: meta.avatar_url },
+          });
+
+      if (!existing && emailVerified) {
+        await this.reconcilePendingShares(user);
+      }
       return user;
     } catch (err) {
       if (

@@ -16,11 +16,34 @@ export const shareDtoSchema = z.object({
 });
 export type ShareDto = z.infer<typeof shareDtoSchema>;
 
-export const createShareSchema = z.object({
-  kind: ShareKind,
-  email: z.string().email().optional(),
-  expiresAt: z.string().datetime().optional(),
-});
+export const createShareSchema = z
+  .object({
+    kind: ShareKind,
+    email: z.string().email().optional(),
+    expiresAt: z.string().datetime().optional(),
+  })
+  .superRefine((data, ctx) => {
+    // A LINK share's credential is the token itself — anyone holding it
+    // gets access. Also naming a grantee email would produce a share
+    // AccessService matches on *either* credential (see
+    // AccessService.resolve), letting the named person in even without the
+    // token. Reject the combination outright rather than silently ignoring
+    // one half of it.
+    if (data.kind === 'LINK' && data.email) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['email'],
+        message: 'A LINK share cannot also be addressed to a grantee email',
+      });
+    }
+    if (data.expiresAt && new Date(data.expiresAt).getTime() <= Date.now()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['expiresAt'],
+        message: 'expiresAt must be in the future',
+      });
+    }
+  });
 export type CreateShareInput = z.infer<typeof createShareSchema>;
 
 /**

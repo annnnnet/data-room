@@ -97,7 +97,7 @@ describe('files', () => {
     const { root, fileId } = await seedTree(app, { files: ['msa.pdf'] });
     const res = await upload(root, 'msa.pdf', 'REPLACE').expect(201);
     expect(res.body.nodeId).toBe(fileId);
-    await uploadAndComplete(fileId, res.body.versionId);
+    await uploadAndComplete(fileId!, res.body.versionId);
     const versions = await app.asOwner().get(`/api/files/${fileId}/versions`).expect(200);
     expect(versions.body.map((v: any) => v.versionNumber)).toEqual([2, 1]);
     expect(versions.body[0].isCurrent).toBe(true);

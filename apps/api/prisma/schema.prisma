@@ -125,4 +125,5 @@ model Share {
 
   @@index([nodeId])
   @@index([granteeUserId])
+  @@index([granteeEmail])
 }

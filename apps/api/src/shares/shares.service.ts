@@ -45,11 +45,16 @@ export class SharesService {
       throw new AppError('VALIDATION_FAILED', 'An email is required for a permissioned share', 400);
     }
 
+    // Postgres' unique index on User.email is case-sensitive, so match and
+    // store invites in lowercase consistently — otherwise inviting
+    // "A@b.com" would never reconcile against a user who signed up as
+    // "a@b.com" (see UserService.upsertFromClaims, which normalises the
+    // same way on write).
+    const email = input.email?.toLowerCase();
+
     // An invited email may not have signed up yet — granteeUserId fills in
     // on their first sign-in via UserService.reconcilePendingShares.
-    const grantee = input.email
-      ? await this.prisma.user.findUnique({ where: { email: input.email } })
-      : null;
+    const grantee = email ? await this.prisma.user.findUnique({ where: { email } }) : null;
 
     const share = await this.prisma.share.create({
       data: {
@@ -60,7 +65,7 @@ export class SharesService {
         // guessing infeasible, never derived from the node id, name, or
         // time. 32 random bytes (256 bits) base64url-encoded.
         token: input.kind === 'LINK' ? randomBytes(32).toString('base64url') : null,
-        granteeEmail: input.email ?? null,
+        granteeEmail: email ?? null,
         granteeUserId: grantee?.id ?? null,
         role: 'VIEWER',
         expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
@@ -74,8 +79,16 @@ export class SharesService {
   async revoke(principal: Principal, shareId: string): Promise<{ ok: true }> {
     const share = await this.prisma.share.findUnique({ where: { id: shareId } });
     if (!share) throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
-    await this.access.requireOwner(principal, share.nodeId);
-    await this.prisma.share.update({ where: { id: shareId }, data: { revokedAt: new Date() } });
+    // Revoking access to a soft-deleted node is legitimate — the owner
+    // still owns the node, they just shouldn't be blocked from managing
+    // who could see it by the same 410 a viewer would get.
+    await this.access.requireOwner(principal, share.nodeId, { allowDeleted: true });
+    // Idempotent, and preserves the *first* revocation time: calling revoke
+    // again on an already-revoked share must not overwrite the original
+    // `revokedAt` with a later timestamp.
+    if (!share.revokedAt) {
+      await this.prisma.share.update({ where: { id: shareId }, data: { revokedAt: new Date() } });
+    }
     return { ok: true as const };
   }
 

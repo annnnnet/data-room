@@ -248,7 +248,7 @@ export interface SeedSpec {
   /** A two-level chain of folders under the root: [child name, nested name]. */
   nested?: [string, string];
   /** Files created inside the deepest `nested` folder. */
-  nestedFiles?: FileSpec[];
+  nestedFiles?: (string | FileSpec)[];
   /** Extra versions to add on top of the first seeded file's version 1. */
   versions?: number;
   /** Grants the given user VIEWER access on the root node. */
@@ -282,8 +282,13 @@ export interface SeedResult {
   nestedChild: string | null;
   /** First file node created anywhere in the tree, if any. */
   fileId: string | null;
-  /** Token of a standing LINK share on the root node, for asLink() tests. */
-  viewerToken: string;
+  /**
+   * Token of a standing LINK share on the root node, for asLink() tests —
+   * null (never '') when `shareRootWithLink` wasn't set, so `asLink('')`
+   * can't silently be called with an empty-string "token" that would slip
+   * past validation as a real, if wrong, credential.
+   */
+  viewerToken: string | null;
 }
 
 function toFileSpec(f: string | FileSpec): Required<FileSpec> {
@@ -534,7 +539,7 @@ export async function seedTree(app: TestApp, spec: SeedSpec): Promise<SeedResult
   // a test can exercise asLink() without creating its own share — but a test
   // that expects "no share" to yield 404 doesn't silently run inside a room
   // that already has a live one.
-  let viewerToken = '';
+  let viewerToken: string | null = null;
   if (spec.shareRootWithLink) {
     viewerToken = randomUUID();
     await prisma.share.create({
