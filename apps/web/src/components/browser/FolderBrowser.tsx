@@ -152,7 +152,13 @@ export function FolderBrowser({
               query — they mount (and, for the table, show their own loading
               treatment) right away instead of blanking with the rest of the
               page. */}
-          <Toolbar parentId={nodeId} nodeName={node.name} readOnly={readOnly} />
+          <Toolbar
+            roomId={node.dataRoomId}
+            basePath={basePath}
+            parentId={nodeId}
+            nodeName={node.name}
+            readOnly={readOnly}
+          />
         </div>
         <NodeTable
           basePath={basePath}

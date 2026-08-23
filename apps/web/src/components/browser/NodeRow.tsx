@@ -16,16 +16,19 @@ export function NodeRow({
   parentId,
   readOnly,
   root,
+  autoOpen = false,
 }: {
   node: PendingNode;
   basePath: string;
   parentId: string;
   readOnly: boolean;
   root: { id: string; name: string };
+  /** Opens the viewer immediately — search's "select a file" result lands here. */
+  autoOpen?: boolean;
 }) {
   const Icon = node.type === 'FOLDER' ? Folder : File;
   const size = node.sizeBytes != null ? formatBytes(node.sizeBytes) : '—';
-  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(autoOpen);
 
   // A move/delete in flight — see `markPendingPatch` — is shown as a
   // dimmed, non-interactive row rather than removed outright, so a failure

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { FolderOpen } from 'lucide-react';
 import { ApiError } from '@/lib/api';
 import { useNodeChildren } from '@/hooks/use-node-children';
@@ -23,6 +24,26 @@ export function NodeTable({
 }) {
   const query = useNodeChildren(parentId);
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Search's "select a file" navigates here with `?open={id}` so the viewer
+  // opens on arrival instead of just landing in the parent folder silently.
+  // Consumed once (stripped from the URL right away) so it never re-fires
+  // on a later re-render, a back/forward nav, or a page refresh.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const openParam = searchParams.get('open');
+  const [autoOpenId, setAutoOpenId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!openParam) return;
+    setAutoOpenId(openParam);
+    const params = new URLSearchParams(searchParams);
+    params.delete('open');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openParam]);
 
   const hasNextPage = query.hasNextPage;
   const isFetchingNextPage = query.isFetchingNextPage;
@@ -96,6 +117,7 @@ export function NodeTable({
               parentId={parentId}
               readOnly={readOnly}
               root={root}
+              autoOpen={node.id === autoOpenId}
             />
           ))}
         </TableBody>

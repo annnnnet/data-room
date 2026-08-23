@@ -1,37 +1,87 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { FolderPlus, Share2, Upload } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { FolderPlus, Search, Share2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { NewFolderDialog } from '@/components/dialogs/NewFolderDialog';
 import { ShareDialog } from '@/components/share/ShareDialog';
+import { SearchCommand } from '@/components/search/SearchCommand';
 import { useUploadContext } from '@/components/upload/UploadProvider';
 import { isPdfFile, rejectionMessage } from '@/components/upload/pdf-filter';
 import { toast } from '@/components/ui/toast';
 
 /**
- * Search still belongs to a later task (it needs a real results list).
  * Upload and Share ship for real: upload feeds picked files into the same
  * queue the dropzone drives, via `UploadDropzone`'s context; Share opens the
- * link/people dialog on the folder currently being viewed. Hidden entirely
+ * link/people dialog on the folder currently being viewed. Both are hidden
  * in `readOnly` — there's nothing left to show, and sharing is owner-only.
+ *
+ * Search is different: the API scopes a `link` principal's search to the
+ * subtrees their share actually covers (verified in `search.service.ts`),
+ * so a share recipient can search too — the button stays even when
+ * `readOnly` strips everything else.
  */
 export function Toolbar({
+  roomId,
+  basePath,
   parentId,
   nodeName,
   readOnly,
 }: {
+  roomId: string;
+  basePath: string;
   parentId: string;
   nodeName: string;
   readOnly: boolean;
 }) {
-  if (readOnly) return null;
   return (
     <div className="flex items-center justify-end gap-2">
-      <UploadButton parentId={parentId} />
-      <NewFolderButton parentId={parentId} />
-      <ShareButton nodeId={parentId} nodeName={nodeName} />
+      <SearchButton roomId={roomId} basePath={basePath} />
+      {!readOnly && (
+        <>
+          <UploadButton parentId={parentId} />
+          <NewFolderButton parentId={parentId} />
+          <ShareButton nodeId={parentId} nodeName={nodeName} />
+        </>
+      )}
     </div>
+  );
+}
+
+function SearchButton({ roomId, basePath }: { roomId: string; basePath: string }) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setOpen((prev) => !prev);
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    // The dialog can be opened from anywhere via the keyboard shortcut, not
+    // just by clicking this button — returning focus here on close still
+    // gives keyboard users a stable, predictable place to land.
+    if (!next) triggerRef.current?.focus();
+  }
+
+  return (
+    <>
+      <Button ref={triggerRef} variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <Search className="size-4" aria-hidden="true" />
+        Search
+        <kbd className="ml-1 hidden rounded border bg-muted px-1 font-mono text-[10px] text-muted-foreground sm:inline">
+          Ctrl+K
+        </kbd>
+      </Button>
+      <SearchCommand roomId={roomId} basePath={basePath} open={open} onOpenChange={handleOpenChange} />
+    </>
   );
 }
 

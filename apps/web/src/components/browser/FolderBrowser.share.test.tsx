@@ -5,6 +5,8 @@ import { FolderBrowser } from './FolderBrowser';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => '/s/the-token/f/contracts-id',
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 /**
