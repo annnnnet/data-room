@@ -54,10 +54,18 @@ function SearchButton({ roomId, basePath }: { roomId: string; basePath: string }
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setOpen((prev) => !prev);
-      }
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
+      // Don't hijack Ctrl/Cmd+K while the user is typing somewhere else —
+      // a text input inside another dialog, a textarea, or a contenteditable
+      // region — since some of those may bind the same shortcut themselves.
+      // The palette's own search input is exempt so Ctrl+K still toggles it
+      // closed while the user is actively typing a query.
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const isOwnSearchInput = target?.dataset.slot === 'command-input';
+      if (!isOwnSearchInput && (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable)) return;
+      e.preventDefault();
+      setOpen((prev) => !prev);
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);

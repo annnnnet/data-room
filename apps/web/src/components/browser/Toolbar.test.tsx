@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 import { Toolbar } from './Toolbar';
 
@@ -48,6 +48,28 @@ describe('Toolbar', () => {
     expect(screen.queryByRole('button', { name: /Upload/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /New folder/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Share/ })).not.toBeInTheDocument();
+  });
+
+  it('ignores Ctrl+K while focus is in an unrelated text input', () => {
+    renderToolbar(false);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    const outsideInput = document.createElement('input');
+    document.body.appendChild(outsideInput);
+    outsideInput.focus();
+
+    fireEvent.keyDown(outsideInput, { key: 'k', ctrlKey: true });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    document.body.removeChild(outsideInput);
+  });
+
+  it('still opens on Ctrl+K when nothing text-editable has focus', () => {
+    renderToolbar(false);
+
+    fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true });
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
   it('shows Search alongside every mutating control for the owner view', () => {

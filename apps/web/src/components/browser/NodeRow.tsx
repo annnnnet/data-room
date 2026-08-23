@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { File, Folder } from 'lucide-react';
 import type { PendingNode } from '@/hooks/node-mutation-patches';
@@ -28,7 +28,19 @@ export function NodeRow({
 }) {
   const Icon = node.type === 'FOLDER' ? Folder : File;
   const size = node.sizeBytes != null ? formatBytes(node.sizeBytes) : '—';
-  const [viewerOpen, setViewerOpen] = useState(autoOpen);
+  // Derived from the `autoOpen` prop via an effect rather than a `useState`
+  // initializer: on a warm query cache, `useNodeChildren` returns data
+  // synchronously and this row can mount on its very first render — before
+  // NodeTable's own effect has flipped `autoOpenId` from null to the real
+  // id. A `useState(autoOpen)` initializer only reads its argument once, on
+  // that first render, so it would lock in `false` and silently miss the
+  // later prop update. Since the effect only fires when `autoOpen` itself
+  // changes, closing the viewer (which doesn't touch `autoOpen`) never
+  // re-triggers it.
+  const [viewerOpen, setViewerOpen] = useState(false);
+  useEffect(() => {
+    if (autoOpen) setViewerOpen(true);
+  }, [autoOpen]);
 
   // A move/delete in flight — see `markPendingPatch` — is shown as a
   // dimmed, non-interactive row rather than removed outright, so a failure

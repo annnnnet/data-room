@@ -94,4 +94,43 @@ describe('NodeTable — search deep-link (?open=)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(replace).not.toHaveBeenCalled();
   });
+
+  it('opens the viewer for ?open= even when the folder was already fetched (warm cache)', async () => {
+    // Reproduces the bug: browsing to this folder within the last 10s (this
+    // app's staleTime) leaves its children cached, so `useInfiniteQuery`
+    // returns that data synchronously on mount — `isPending` is already
+    // false on NodeTable's very first render, so NodeRow mounts on its
+    // first render too, same render pass as everything else. That's the
+    // one case `NodeTable`'s own effect (which flips `autoOpenId` from
+    // `null` to the real id) cannot have run before NodeRow reads its
+    // `autoOpen` prop for the first time. A fresh QueryClient per test (as
+    // the other tests in this file use) can never hit this: there's nothing
+    // to serve synchronously, so `isPending` is always true on first render
+    // and NodeRow only ever mounts once `autoOpenId` is already correct.
+    search = 'open=file-1';
+    const { api } = await import('@/lib/api');
+    vi.mocked(api.get).mockResolvedValue({ items: [fileNode], nextCursor: null });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(['children', 'folder-1'], {
+      pages: [{ items: [fileNode], nextCursor: null }],
+      pageParams: [null],
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <NodeTable
+          basePath="/r/room-1/f"
+          parentId="folder-1"
+          readOnly={false}
+          root={{ id: 'root-1', name: 'Room Root' }}
+        />
+      </QueryClientProvider>,
+    );
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('MSA.docx');
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/r/room-1/f/folder-1', { scroll: false }));
+  });
 });

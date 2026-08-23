@@ -56,6 +56,14 @@ export function SearchCommand({
     return () => clearTimeout(timer);
   }, [input]);
 
+  const trimmedInput = input.trim();
+  const belowMinLength = trimmedInput.length < MIN_QUERY_LENGTH;
+  // Between 1 and 2 characters, `trimmedInput` already clears the minimum
+  // but `debounced` (and therefore `enabled`) hasn't caught up yet — for up
+  // to DEBOUNCE_MS neither the hint below nor any of the `enabled`-gated
+  // states below have anything to show. Without this, CommandList renders
+  // with no children at all for that window.
+  const awaitingDebounce = !belowMinLength && trimmedInput !== debounced;
   const enabled = open && debounced.length >= MIN_QUERY_LENGTH;
 
   const query = useQuery({
@@ -73,9 +81,11 @@ export function SearchCommand({
       router.push(`${basePath}/${hit.id}`);
       return;
     }
-    // No parentId means the hit is a top-level child of whatever root the
-    // caller can see — `basePath` alone (no trailing id) already means
-    // "that root" everywhere else in the app.
+    // `hit.parentId` is always non-null in practice — the API's search query
+    // filters `parentId: { not: null }`, so the room root itself is never a
+    // hit — but `SearchHit.parentId` is typed nullable (`@data-room/shared`)
+    // and matches the shape used elsewhere (e.g. NodeDto), so this fallback
+    // stays here as a defensive no-op rather than an `as string` assertion.
     const parentPath = hit.parentId ? `${basePath}/${hit.parentId}` : basePath;
     router.push(`${parentPath}?open=${encodeURIComponent(hit.id)}`);
   }
@@ -90,11 +100,11 @@ export function SearchCommand({
       <Command shouldFilter={false}>
         <CommandInput value={input} onValueChange={setInput} placeholder="Search files and folders…" />
         <CommandList>
-          {input.trim().length < MIN_QUERY_LENGTH && (
+          {belowMinLength && (
             <CommandEmpty>Type at least {MIN_QUERY_LENGTH} characters to search.</CommandEmpty>
           )}
 
-          {enabled && query.isFetching && (
+          {(awaitingDebounce || (enabled && query.isFetching)) && (
             <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" aria-hidden="true" />
               Searching…

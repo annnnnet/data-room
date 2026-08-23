@@ -91,6 +91,39 @@ describe('SearchCommand', () => {
     expect(api.get).not.toHaveBeenCalled();
   });
 
+  it('never renders an empty palette while the debounce settles from 1 to 2 characters', async () => {
+    vi.useFakeTimers();
+    try {
+      const { api } = await import('@/lib/api');
+      vi.mocked(api.get).mockResolvedValue({ items: [], nextCursor: null });
+
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <SearchCommand roomId="room-1" basePath="/r/room-1/f" open onOpenChange={vi.fn()} />
+        </QueryClientProvider>,
+      );
+
+      const input = screen.getByPlaceholderText('Search files and folders…');
+
+      fireEvent.change(input, { target: { value: 'm' } });
+      expect(screen.getByText('Type at least 2 characters to search.')).toBeInTheDocument();
+
+      // Crossing the minimum length before the 250ms debounce has fired:
+      // the hint is gated on the raw input, so it disappears immediately,
+      // but `debounced` (and everything gated on it) hasn't caught up yet.
+      fireEvent.change(input, { target: { value: 'ms' } });
+      expect(screen.queryByText('Type at least 2 characters to search.')).not.toBeInTheDocument();
+      // CommandList must not be empty during this window.
+      expect(screen.getByText('Searching…')).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(300);
+      await vi.waitFor(() => expect(api.get).toHaveBeenCalled(), { timeout: 2000 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('renders results with their breadcrumb label once the debounced query resolves', async () => {
     const { api } = await import('@/lib/api');
     vi.mocked(api.get).mockResolvedValue({
