@@ -70,7 +70,7 @@ export function HomeContent() {
         <NewDataRoomDialog />
       </header>
 
-      {isPending && <TableSkeleton rows={6} />}
+      {isPending && <TableSkeleton rows={6} label="Loading data rooms" />}
 
       {isError && (
         <ErrorState
