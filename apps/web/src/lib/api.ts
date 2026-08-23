@@ -39,9 +39,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
 
   if (!res.ok) {
+    // A non-JSON body means the response did not come from our API at all — a
+    // proxy's HTML error page, a gateway timeout. Falling back to
+    // VALIDATION_FAILED there would make callers that branch on that code to
+    // show inline field errors misreport an infrastructure failure as bad input.
     const payload = (await res.json().catch(() => null)) as ApiErrorBody | null;
     throw new ApiError(
-      payload?.code ?? 'VALIDATION_FAILED',
+      payload?.code ?? 'INTERNAL',
       payload?.message ?? res.statusText,
       res.status,
       payload?.details,
