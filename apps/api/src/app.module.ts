@@ -8,6 +8,7 @@ import { DataRoomsModule } from './data-rooms/data-rooms.module';
 import { StorageModule } from './storage/storage.module';
 import { FilesModule } from './files/files.module';
 import { SharesModule } from './shares/shares.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { SharesModule } from './shares/shares.module';
     StorageModule,
     FilesModule,
     SharesModule,
+    SearchModule,
   ],
   controllers: [],
   providers: [],
