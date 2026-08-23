@@ -8,6 +8,7 @@ import { PageSpinner } from '@/components/states/PageSpinner';
 import { ErrorState } from '@/components/states/ErrorState';
 import { useNodeGoneRedirect } from '@/hooks/use-node-gone-redirect';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { UploadDropzone } from '@/components/upload/UploadDropzone';
 import { Breadcrumbs } from './Breadcrumbs';
 import { Toolbar } from './Toolbar';
 import { NodeTable } from './NodeTable';
@@ -83,26 +84,28 @@ export function FolderBrowser({
   const node = detail.data;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div
-        className={`flex flex-wrap items-center justify-between gap-3 transition-opacity ${
-          detail.isFetching ? 'opacity-70' : ''
-        }`}
-      >
-        <Breadcrumbs roomId={roomId} breadcrumbs={node.breadcrumbs} />
-        {/* `nodeId`, not `node.id`: the folder being viewed is known from the
-            route immediately, so the toolbar and table don't wait on this
-            query — they mount (and, for the table, show their own loading
-            treatment) right away instead of blanking with the rest of the
-            page. */}
-        <Toolbar parentId={nodeId} readOnly={readOnly} />
+    <UploadDropzone parentId={nodeId} readOnly={readOnly}>
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <div
+          className={`flex flex-wrap items-center justify-between gap-3 transition-opacity ${
+            detail.isFetching ? 'opacity-70' : ''
+          }`}
+        >
+          <Breadcrumbs roomId={roomId} breadcrumbs={node.breadcrumbs} />
+          {/* `nodeId`, not `node.id`: the folder being viewed is known from the
+              route immediately, so the toolbar and table don't wait on this
+              query — they mount (and, for the table, show their own loading
+              treatment) right away instead of blanking with the rest of the
+              page. */}
+          <Toolbar parentId={nodeId} readOnly={readOnly} />
+        </div>
+        <NodeTable
+          roomId={roomId}
+          parentId={nodeId}
+          readOnly={readOnly}
+          root={node.breadcrumbs[0] ?? { id: nodeId, name: node.name }}
+        />
       </div>
-      <NodeTable
-        roomId={roomId}
-        parentId={nodeId}
-        readOnly={readOnly}
-        root={node.breadcrumbs[0] ?? { id: nodeId, name: node.name }}
-      />
-    </div>
+    </UploadDropzone>
   );
 }
