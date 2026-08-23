@@ -14,10 +14,12 @@ export function NodeTable({
   roomId,
   parentId,
   readOnly,
+  root,
 }: {
   roomId: string;
   parentId: string;
   readOnly: boolean;
+  root: { id: string; name: string };
 }) {
   const query = useNodeChildren(parentId);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -87,7 +89,14 @@ export function NodeTable({
         </TableHeader>
         <TableBody>
           {items.map((node) => (
-            <NodeRow key={node.id} node={node} roomId={roomId} parentId={parentId} readOnly={readOnly} />
+            <NodeRow
+              key={node.id}
+              node={node}
+              roomId={roomId}
+              parentId={parentId}
+              readOnly={readOnly}
+              root={root}
+            />
           ))}
         </TableBody>
       </Table>

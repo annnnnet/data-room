@@ -97,7 +97,12 @@ export function FolderBrowser({
             page. */}
         <Toolbar parentId={nodeId} readOnly={readOnly} />
       </div>
-      <NodeTable roomId={roomId} parentId={nodeId} readOnly={readOnly} />
+      <NodeTable
+        roomId={roomId}
+        parentId={nodeId}
+        readOnly={readOnly}
+        root={node.breadcrumbs[0] ?? { id: nodeId, name: node.name }}
+      />
     </div>
   );
 }

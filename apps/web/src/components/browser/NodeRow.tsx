@@ -12,11 +12,13 @@ export function NodeRow({
   roomId,
   parentId,
   readOnly,
+  root,
 }: {
   node: NodeDto;
   roomId: string;
   parentId: string;
   readOnly: boolean;
+  root: { id: string; name: string };
 }) {
   const Icon = node.type === 'FOLDER' ? Folder : File;
   const size = node.sizeBytes != null ? formatBytes(node.sizeBytes) : '—';
@@ -50,7 +52,7 @@ export function NodeRow({
       </TableCell>
       {!readOnly && (
         <TableCell>
-          <NodeRowActions node={node} parentId={parentId} />
+          <NodeRowActions node={node} parentId={parentId} root={root} />
         </TableCell>
       )}
     </TableRow>
