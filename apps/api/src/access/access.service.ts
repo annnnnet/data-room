@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppError } from '../common/api-error';
 import { ancestorIds } from '../common/path.util';
+import { liveShareForPrincipal } from './share-scope';
 import type { Principal } from '../auth/auth.guard';
 
 export type AccessNode = {
@@ -54,11 +55,7 @@ export class AccessService {
       const shares = await this.prisma.share.findMany({
         where: {
           nodeId: { in: scope },
-          revokedAt: null,
-          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-          ...(principal.kind === 'user'
-            ? { granteeUserId: principal.userId }
-            : { token: principal.shareToken }),
+          ...liveShareForPrincipal(principal),
         },
         select: { id: true },
         take: 1,

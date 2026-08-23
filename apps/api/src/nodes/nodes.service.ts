@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { encodeCursor, decodeCursor, type NodeDetail, type NodeStats } from '@data-room/shared';
+import { type NodeDetail, type NodeStats } from '@data-room/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccessService } from '../access/access.service';
 import { AppError } from '../common/api-error';
 import { ancestorIds, subtreePrefix, buildPath, isSelfOrDescendant } from '../common/path.util';
 import { nextAvailableName } from '../common/name.util';
+import { afterCursorWhere, buildPage, parseCursorParam } from '../common/keyset-pagination';
 import { toNodeDto } from './node.mapper';
 import type { Principal } from '../auth/auth.guard';
 
@@ -14,9 +15,6 @@ const INCLUDE = {
   currentVersion: { select: { sizeBytes: true, mimeType: true } },
   _count: { select: { versions: true } },
 } as const;
-
-/** Matches the Prisma schema's declared enum order — FOLDER sorts before FILE. */
-const TYPE_ORDER = ['FOLDER', 'FILE'] as const;
 
 @Injectable()
 export class NodesService {
@@ -71,23 +69,8 @@ export class NodesService {
     await this.access.resolve(principal, id);
     const limit = Math.min(opts.limit ?? 50, 100);
 
-    let cursor = null as ReturnType<typeof decodeCursor>;
-    if (opts.cursor) {
-      cursor = decodeCursor(opts.cursor);
-      if (!cursor) {
-        throw new AppError('VALIDATION_FAILED', 'Invalid cursor', 400);
-      }
-    }
-
-    const after = cursor
-      ? {
-          OR: [
-            { type: { in: TYPE_ORDER.slice(TYPE_ORDER.indexOf(cursor.type) + 1) } },
-            { type: cursor.type, name: { gt: cursor.name } },
-            { type: cursor.type, name: cursor.name, id: { gt: cursor.id } },
-          ],
-        }
-      : {};
+    const cursor = parseCursorParam(opts.cursor);
+    const after = afterCursorWhere(cursor);
 
     const rows = await this.prisma.node.findMany({
       where: {
@@ -105,14 +88,11 @@ export class NodesService {
       include: INCLUDE,
     });
 
-    const hasMore = rows.length > limit;
-    const items = rows.slice(0, limit);
-    const last = items[items.length - 1];
+    const { items, nextCursor } = buildPage(rows, limit);
 
     return {
       items: items.map(toNodeDto),
-      nextCursor:
-        hasMore && last ? encodeCursor({ type: last.type, name: last.name, id: last.id }) : null,
+      nextCursor,
     };
   }
 

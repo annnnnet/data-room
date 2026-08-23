@@ -1,17 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import { encodeCursor, decodeCursor, type SearchQuery, type SearchHit } from '@data-room/shared';
+import { type SearchQuery, type SearchHit } from '@data-room/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppError } from '../common/api-error';
 import { toNodeDto } from '../nodes/node.mapper';
+import { liveShareForPrincipal } from '../access/share-scope';
+import { afterCursorWhere, buildPage, parseCursorParam } from '../common/keyset-pagination';
+import { escapeLikeTerm } from '../common/like.util';
 import type { Principal } from '../auth/auth.guard';
 
 const INCLUDE = {
   currentVersion: { select: { sizeBytes: true, mimeType: true } },
   _count: { select: { versions: true } },
 } as const;
-
-/** Matches the Prisma schema's declared enum order — FOLDER sorts before FILE. */
-const TYPE_ORDER = ['FOLDER', 'FILE'] as const;
 
 @Injectable()
 export class SearchService {
@@ -35,7 +35,11 @@ export class SearchService {
   private async scopePrefixes(principal: Principal, dataRoomId: string): Promise<string[]> {
     const room = await this.prisma.dataRoom.findUnique({
       where: { id: dataRoomId },
-      include: { nodes: { where: { parentId: null }, select: { path: true } } },
+      // Explicitly excludes a soft-deleted root, even though nothing in
+      // the app currently allows the room root itself to be soft-deleted
+      // (NodesService.softDelete rejects it) — makes the invariant
+      // explicit here rather than relying on that elsewhere.
+      include: { nodes: { where: { parentId: null, deletedAt: null }, select: { path: true } } },
     });
     if (!room || room.nodes.length === 0) throw new AppError('NODE_NOT_FOUND', 'Not found', 404);
 
@@ -53,12 +57,8 @@ export class SearchService {
 
     const shares = await this.prisma.share.findMany({
       where: {
-        revokedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         node: { dataRoomId, deletedAt: null },
-        ...(principal.kind === 'user'
-          ? { granteeUserId: principal.userId }
-          : { token: principal.shareToken }),
+        ...liveShareForPrincipal(principal),
       },
       include: { node: { select: { path: true } } },
     });
@@ -71,22 +71,12 @@ export class SearchService {
     input: SearchQuery,
   ): Promise<{ items: SearchHit[]; nextCursor: string | null }> {
     const prefixes = await this.scopePrefixes(principal, input.dataRoomId);
-    const limit = Math.min(input.limit ?? 20, 50);
+    // Zod's searchQuerySchema already rejects limit > 50 (400
+    // VALIDATION_FAILED) before this runs — no second clamp needed here.
+    const limit = input.limit ?? 20;
 
-    let cursor = null as ReturnType<typeof decodeCursor>;
-    if (input.cursor) {
-      cursor = decodeCursor(input.cursor);
-      if (!cursor) throw new AppError('VALIDATION_FAILED', 'Invalid cursor', 400);
-    }
-    const after = cursor
-      ? {
-          OR: [
-            { type: { in: TYPE_ORDER.slice(TYPE_ORDER.indexOf(cursor.type) + 1) } },
-            { type: cursor.type, name: { gt: cursor.name } },
-            { type: cursor.type, name: cursor.name, id: { gt: cursor.id } },
-          ],
-        }
-      : {};
+    const cursor = parseCursorParam(input.cursor);
+    const after = afterCursorWhere(cursor);
 
     const rows = await this.prisma.node.findMany({
       where: {
@@ -94,7 +84,11 @@ export class SearchService {
         deletedAt: null,
         // The room root itself is never a hit — it has no parent.
         parentId: { not: null },
-        name: { contains: input.q, mode: 'insensitive' },
+        // `%`/`_`/`\` in the raw term are escaped so they act as literal
+        // characters, not LIKE wildcards — otherwise `?q=%` would match
+        // (and return) everything in scope, and a real `50%_off.pdf` would
+        // silently over-match instead of being found by its literal name.
+        name: { contains: escapeLikeTerm(input.q), mode: 'insensitive' },
         AND: [
           // Access scoping happens in the query itself: a row must fall
           // under one of the caller's granted path prefixes. Never fetch
@@ -112,9 +106,7 @@ export class SearchService {
       include: INCLUDE,
     });
 
-    const hasMore = rows.length > limit;
-    const items = rows.slice(0, limit);
-    const last = items[items.length - 1];
+    const { items, nextCursor } = buildPage(rows, limit);
 
     // One extra query resolves every ancestor label in the result set,
     // instead of N+1 breadcrumb lookups.
@@ -137,8 +129,7 @@ export class SearchService {
           .map((id) => byId.get(id) ?? '…')
           .join(' / '),
       })),
-      nextCursor:
-        hasMore && last ? encodeCursor({ type: last.type, name: last.name, id: last.id }) : null,
+      nextCursor,
     };
   }
 }
