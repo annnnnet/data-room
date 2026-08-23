@@ -8,3 +8,4 @@ docs/superpowers/
 .superpowers/
 test-results/
 playwright-report/
+apps/web/e2e/.e2e-user.json

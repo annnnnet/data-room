@@ -28,7 +28,8 @@
     "test:e2e:db:migrate": "node scripts/migrate-test-db.js",
     "test:e2e:db:verify": "node scripts/verify-test-db.js",
     "test:e2e:setup": "pnpm run test:e2e:db:up && pnpm run test:e2e:db:migrate && pnpm run test:e2e:db:verify",
-    "test:e2e:full": "pnpm run test:e2e:setup && pnpm run test:e2e"
+    "test:e2e:full": "pnpm run test:e2e:setup && pnpm run test:e2e",
+    "test:dist-boot": "node scripts/dist-boot-check.js"
   },
   "dependencies": {
     "@data-room/shared": "workspace:*",
