@@ -274,6 +274,62 @@ describe('sharing', () => {
     expect(res.body.code).toBe('NODE_NOT_FOUND');
   });
 
+  it('reconciles a share invited after an unverified first sign-in, once the same user later verifies', async () => {
+    // Regression coverage: gating reconciliation on "the User row was just
+    // created" permanently misses this case — the row is created during the
+    // *unverified* first sign-in (nothing to reconcile yet, correctly), and
+    // every later call sees an already-existing row, so it never runs again
+    // even after the person verifies and an invite exists for them.
+    const { root } = await seedTree(app, {});
+    const userService = app.nest.get(UserService);
+
+    const user = await userService.upsertFromClaims({
+      sub: 'late-verify-sub',
+      email: 'late-verify@acme.test',
+      // Unverified: creates the User row, must not reconcile anything yet.
+    });
+    app._userIds.push(user.id);
+
+    await app
+      .asOwner()
+      .post(`/api/nodes/${root}/shares`)
+      .send({ kind: 'USER', email: 'late-verify@acme.test' })
+      .expect(201);
+
+    // Same person signs in again, now with a verified email — the pending
+    // invite created above must be reconciled on this call.
+    await userService.upsertFromClaims({
+      sub: 'late-verify-sub',
+      email: 'late-verify@acme.test',
+      email_verified: true,
+    });
+
+    await app.asUser(user.id).get(`/api/nodes/${root}`).expect(200);
+  });
+
+  it('does not error when concurrent first-login calls race for the same brand-new user', async () => {
+    // Regression coverage: findUnique-then-create is TOCTOU — two concurrent
+    // calls for the same brand-new sub can both observe "no row yet" and
+    // both attempt to create, so the loser must not surface as a raw 500.
+    // The atomic upsert must resolve all of them to the same row instead.
+    const userService = app.nest.get(UserService);
+    const sub = `concurrent-${randomUUID()}`;
+    const email = `${sub}@acme.test`;
+    const claims = { sub, email, email_verified: true };
+
+    const results = await Promise.all([
+      userService.upsertFromClaims(claims),
+      userService.upsertFromClaims(claims),
+      userService.upsertFromClaims(claims),
+      userService.upsertFromClaims(claims),
+    ]);
+
+    app._userIds.push(results[0].id);
+    for (const user of results) {
+      expect(user.id).toBe(results[0].id);
+    }
+  });
+
   it('exposes public context for a live link token, and 404s an unknown one', async () => {
     const { nested } = await seedTree(app, { nested: ['Legal', 'Contracts'] });
     const share = await app.asOwner().post(`/api/nodes/${nested}/shares`).send({ kind: 'LINK' });

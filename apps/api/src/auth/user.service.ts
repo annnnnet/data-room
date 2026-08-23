@@ -29,24 +29,34 @@ export class UserService {
     const emailVerified = claims.email_verified === true;
 
     try {
-      // upsert() alone can't tell us whether it created or updated the row,
-      // and that distinction is exactly the gate we need: reconciliation
-      // issues a write against every pending-invite row for this email, so
-      // it must not run on the hot path of "already-registered user makes
-      // an API call" — only at the one moment it can matter, when the user
-      // row is first created and their address is confirmed.
-      const existing = await this.prisma.user.findUnique({ where: { supabaseSub: sub } });
-      const user = existing
-        ? await this.prisma.user.update({
-            where: { supabaseSub: sub },
-            data: { email, name: meta.full_name, avatarUrl: meta.avatar_url },
-          })
-        : await this.prisma.user.create({
-            data: { supabaseSub: sub, email, name: meta.full_name, avatarUrl: meta.avatar_url },
-          });
+      // Atomic INSERT ... ON CONFLICT DO UPDATE: two concurrent requests for
+      // the same brand-new sub (two tabs, or parallel calls right after
+      // first sign-in) both land here safely instead of racing a
+      // findUnique-then-create, where the loser would hit a raw P2002 on
+      // supabaseSub.
+      const user = await this.prisma.user.upsert({
+        where: { supabaseSub: sub },
+        create: { supabaseSub: sub, email, name: meta.full_name, avatarUrl: meta.avatar_url },
+        update: { email, name: meta.full_name, avatarUrl: meta.avatar_url },
+      });
 
-      if (!existing && emailVerified) {
-        await this.reconcilePendingShares(user);
+      // Gating reconciliation on "row was just created" is a permanent
+      // trap: a user who first signs in unverified gets their row created
+      // then, so `!existing` is never true again on any later call — even
+      // once they verify, their pending invites stay dead forever. Instead,
+      // gate on "is there actually anything to reconcile": a verified email
+      // plus at least one pending share for it. Share.granteeEmail is
+      // indexed (see migration 20260823000000_...), so this is a cheap
+      // index probe that returns nothing on the overwhelming majority of
+      // requests and never writes when there's nothing pending.
+      if (emailVerified) {
+        const pending = await this.prisma.share.findFirst({
+          where: { granteeEmail: email, granteeUserId: null },
+          select: { id: true },
+        });
+        if (pending) {
+          await this.reconcilePendingShares(user);
+        }
       }
       return user;
     } catch (err) {
