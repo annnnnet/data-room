@@ -27,7 +27,11 @@ type DownloadUrlResponse = { url: string };
  * all, depending on the browser, and both read as broken.
  */
 function FilePreview({ node }: { node: NodeDto }) {
-  const isPdf = node.mimeType === 'application/pdf';
+  // Storage may hand back a parameterised or differently-cased type
+  // ('application/pdf; charset=binary'), and mimeType is nullable. Strip the
+  // parameters before comparing — anything that is not clearly a PDF falls to
+  // the download card, which is the safe branch.
+  const isPdf = node.mimeType?.split(';')[0].trim().toLowerCase() === 'application/pdf';
 
   const inline = useQuery({
     queryKey: ['download-url', node.id, 'inline'],
@@ -126,7 +130,7 @@ export function FileViewerSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex h-full w-full flex-col gap-0 p-0 sm:max-w-2xl"
+        className="flex h-full flex-col gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-2xl"
       >
         <SheetHeader className="border-b pr-10">
           <SheetTitle className="truncate" title={node.name}>
