@@ -1,8 +1,8 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
-import type { NodeDto } from '@data-room/shared';
+import type { PendingNode } from './node-mutation-patches';
 import { api } from '@/lib/api';
 
-type Page = { items: NodeDto[]; nextCursor: string | null };
+type Page = { items: PendingNode[]; nextCursor: string | null };
 
 export function useNodeChildren(nodeId: string) {
   return useInfiniteQuery({

@@ -14,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
 import { formatBytes } from '@/lib/format';
 import { useNodeMutations } from '@/hooks/use-node-mutations';
 
@@ -35,7 +36,7 @@ export function DeleteDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const { remove } = useNodeMutations(parentId);
+  const { remove } = useNodeMutations(parentId, { toastOnError: false });
 
   const stats = useQuery({
     queryKey: ['stats', node.id],
@@ -69,6 +70,18 @@ export function DeleteDialog({
             undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {stats.isError && (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            className="justify-self-start"
+            onClick={() => stats.refetch()}
+            disabled={stats.isRefetching}
+          >
+            {stats.isRefetching ? 'Retrying…' : 'Retry'}
+          </Button>
+        )}
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}

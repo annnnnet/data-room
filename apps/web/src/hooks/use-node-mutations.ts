@@ -2,7 +2,20 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { NodeDto } from '@data-room/shared';
 import { api, ApiError } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
-import { movePatch, removePatch, renamePatch, type Pages } from './node-mutation-patches';
+import { markPendingPatch, renamePatch, type Pages } from './node-mutation-patches';
+
+export type UseNodeMutationsOptions = {
+  /**
+   * Whether a failed rename/move/delete also raises the global error toast.
+   * Defaults to `true` — callers get feedback for free. The four dialogs in
+   * this folder pass `false` because they already render the same failure
+   * inline next to the form; without the opt-out, React Query fires both
+   * the hook-level `onError` and the dialog's call-level `onError`, so the
+   * user would see one failure reported twice (a persistent inline message
+   * plus a toast floating beside the open modal).
+   */
+  toastOnError?: boolean;
+};
 
 /**
  * Rename/move/delete are optimistic against the `['children', parentId]`
@@ -10,7 +23,8 @@ import { movePatch, removePatch, renamePatch, type Pages } from './node-mutation
  * optimistically inserting (the server assigns the id) so it just
  * invalidates on success.
  */
-export function useNodeMutations(parentId: string) {
+export function useNodeMutations(parentId: string, options: UseNodeMutationsOptions = {}) {
+  const { toastOnError = true } = options;
   const qc = useQueryClient();
   const key = ['children', parentId];
 
@@ -25,6 +39,7 @@ export function useNodeMutations(parentId: string) {
       },
       onError: (err: unknown, _vars: TVars, ctx?: { previous?: Pages }) => {
         if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+        if (!toastOnError) return;
         const message =
           err instanceof ApiError ? err.message : 'Something went wrong. Please try again.';
         toast.add({ title: message, type: 'error' });
@@ -39,15 +54,18 @@ export function useNodeMutations(parentId: string) {
     ...optimistic<{ id: string; name: string }>(renamePatch),
   });
 
+  // Marked pending rather than removed on `onMutate` — see `markPendingPatch`
+  // — so the row reads as "in flight" instead of vanishing and popping back
+  // on a rollback.
   const remove = useMutation({
     mutationFn: ({ id }: { id: string }) => api.del(`/api/nodes/${id}`),
-    ...optimistic<{ id: string }>(removePatch),
+    ...optimistic<{ id: string }>(markPendingPatch),
   });
 
   const move = useMutation({
     mutationFn: ({ id, parentId: dest }: { id: string; parentId: string }) =>
       api.patch<NodeDto>(`/api/nodes/${id}`, { parentId: dest }),
-    ...optimistic<{ id: string; parentId: string }>(movePatch),
+    ...optimistic<{ id: string; parentId: string }>(markPendingPatch),
   });
 
   // No optimistic insert (the server assigns the id) and no toast on

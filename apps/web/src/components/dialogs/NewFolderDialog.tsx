@@ -34,7 +34,7 @@ export function NewFolderDialog({
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [suggestedName, setSuggestedName] = useState<string | null>(null);
-  const { createFolder } = useNodeMutations(parentId);
+  const { createFolder } = useNodeMutations(parentId, { toastOnError: false });
 
   function reset() {
     setName('');

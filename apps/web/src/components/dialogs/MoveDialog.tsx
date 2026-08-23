@@ -35,7 +35,7 @@ export function MoveDialog({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { move } = useNodeMutations(parentId);
+  const { move } = useNodeMutations(parentId, { toastOnError: false });
 
   function handleOpenChange(next: boolean) {
     onOpenChange(next);

@@ -30,7 +30,7 @@ export function RenameDialog({
   const [name, setName] = useState(node.name);
   const [error, setError] = useState<string | null>(null);
   const [suggestedName, setSuggestedName] = useState<string | null>(null);
-  const { rename } = useNodeMutations(parentId);
+  const { rename } = useNodeMutations(parentId, { toastOnError: false });
 
   // The field always starts from the current name, whichever node the
   // dialog is opened for — a stale value from the previously renamed node

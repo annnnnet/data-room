@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { File, Folder } from 'lucide-react';
-import type { NodeDto } from '@data-room/shared';
+import type { PendingNode } from '@/hooks/node-mutation-patches';
 import { TableCell, TableRow } from '@/components/ui/table';
 import { formatBytes, formatRelative } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { NodeRowActions } from './NodeRowActions';
 
 export function NodeRow({
@@ -14,7 +15,7 @@ export function NodeRow({
   readOnly,
   root,
 }: {
-  node: NodeDto;
+  node: PendingNode;
   roomId: string;
   parentId: string;
   readOnly: boolean;
@@ -23,8 +24,14 @@ export function NodeRow({
   const Icon = node.type === 'FOLDER' ? Folder : File;
   const size = node.sizeBytes != null ? formatBytes(node.sizeBytes) : '—';
 
+  // A move/delete in flight — see `markPendingPatch` — is shown as a
+  // dimmed, non-interactive row rather than removed outright, so a failure
+  // rolling back doesn't read as the row vanishing and popping back.
   return (
-    <TableRow>
+    <TableRow
+      aria-busy={node._pending || undefined}
+      className={cn(node._pending && 'pointer-events-none opacity-50')}
+    >
       <TableCell className="overflow-hidden">
         <div className="flex min-w-0 items-center gap-2">
           <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
