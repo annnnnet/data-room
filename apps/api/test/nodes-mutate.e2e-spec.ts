@@ -156,13 +156,13 @@ describe('node mutations', () => {
     // AccessService.resolve finds their share (still live), but then still
     // must see `nested.deletedAt` and refuse. The attack this guards
     // against: a share surviving on a node whose ancestor was deleted.
-    const { child, nested } = await seedTree(app, {
+    const { child, nested, nestedViewerId } = await seedTree(app, {
       nested: ['Legal', 'Contracts'],
       shareNestedWith: 'viewer-1',
     });
     await app.asOwner().delete(`/api/nodes/${child}`).expect(200);
 
-    const res = await app.asUser('viewer-1').get(`/api/nodes/${nested}`);
+    const res = await app.asUser(nestedViewerId!).get(`/api/nodes/${nested}`);
     expect(res.status).not.toBe(200);
     expect(res.body.code).toBe('NODE_GONE');
   });
@@ -182,8 +182,8 @@ describe('node mutations', () => {
   });
 
   it('forbids a viewer from mutating', async () => {
-    const { root } = await seedTree(app, { folders: ['Legal'], shareRootWith: 'u2' });
-    const res = await app.asUser('u2').post('/api/folders').send({ parentId: root, name: 'X' });
+    const { root, viewerId } = await seedTree(app, { folders: ['Legal'], shareRootWith: 'u2' });
+    const res = await app.asUser(viewerId!).post('/api/folders').send({ parentId: root, name: 'X' });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('FORBIDDEN');
   });

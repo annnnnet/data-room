@@ -147,6 +147,17 @@ export interface TestApp {
   prisma: PrismaService;
   /** Owner of the most recent seedTree() call — asOwner() reads this. */
   ownerId: string;
+  /**
+   * Short random id unique to this TestApp instance. Jest runs e2e spec
+   * files in parallel workers against the SAME database, so a hardcoded
+   * test-user label like 'u2' used in two suites at once would collide on
+   * the same row — and since Share.granteeUser is ON DELETE CASCADE, one
+   * suite's close() deleting that shared user would cascade-delete the
+   * other suite's still-in-use Share rows out from under it. Namespacing
+   * every ensureTestUser() id with this runId keeps suites' fixtures
+   * genuinely independent instead of merely serialized.
+   */
+  runId: string;
   /** @internal room ids created by seedTree(), cleaned up on close(). */
   _roomIds: string[];
   /** @internal user ids created by seedTree(), cleaned up on close(). */
@@ -192,6 +203,7 @@ export async function createTestApp(): Promise<TestApp> {
     nest,
     prisma,
     ownerId: '',
+    runId: randomUUID().slice(0, 8),
     _roomIds: [],
     _userIds: [],
     asOwner: () => agentWithHeader(server, { 'x-test-user': app.ownerId }),
@@ -289,6 +301,15 @@ export interface SeedResult {
    * past validation as a real, if wrong, credential.
    */
   viewerToken: string | null;
+  /**
+   * Resolved id of the `shareRootWith` grantee (namespaced by ensureTestUser
+   * with this TestApp's runId) — use this with `asUser()` instead of the
+   * literal label passed to `shareRootWith`, since the row id is not the
+   * bare label. Null when `shareRootWith` wasn't set.
+   */
+  viewerId: string | null;
+  /** Same as `viewerId` but for the `shareNestedWith` grantee. */
+  nestedViewerId: string | null;
 }
 
 function toFileSpec(f: string | FileSpec): Required<FileSpec> {
@@ -337,13 +358,20 @@ async function createFileNode(
 }
 
 /**
- * Ensures a User row exists with exactly the given id, so a share's
- * `granteeUserId` matches the literal id a test passes to `asUser(id)` (the
- * TestAuthGuard puts that literal string straight onto `principal.userId` —
- * it never gets translated to a real database id). Idempotent per id and
- * tracked for cleanup.
+ * Ensures a User row exists for the given *label*, so a share's
+ * `granteeUserId` matches the id a test passes to `asUser(id)` (the
+ * TestAuthGuard puts that string straight onto `principal.userId` — it
+ * never gets translated to a real database id). The actual row id is the
+ * label namespaced with `app.runId` (not the bare label): Jest runs e2e
+ * spec files in parallel against the same database, so two suites calling
+ * `ensureTestUser(..., 'u2')` at the same time must land on two distinct
+ * rows, not race to upsert/delete the same one. Idempotent per label
+ * within a single TestApp and tracked for cleanup. Callers get the
+ * resolved id back (via SeedResult) rather than needing to know the
+ * namespacing scheme themselves.
  */
-async function ensureTestUser(prisma: PrismaService, app: TestApp, id: string): Promise<string> {
+async function ensureTestUser(prisma: PrismaService, app: TestApp, label: string): Promise<string> {
+  const id = `${label}-${app.runId}`;
   await prisma.user.upsert({
     where: { id },
     update: {},
@@ -435,6 +463,8 @@ export async function seedTree(app: TestApp, spec: SeedSpec): Promise<SeedResult
 
   let nested: string | null = null;
   let nestedChild: string | null = null;
+  let nestedViewerId: string | null = null;
+  let viewerId: string | null = null;
 
   if (spec.nested) {
     const [childName, nestedName] = spec.nested;
@@ -489,6 +519,7 @@ export async function seedTree(app: TestApp, spec: SeedSpec): Promise<SeedResult
 
     if (spec.shareNestedWith) {
       const granteeId = await ensureTestUser(prisma, app, spec.shareNestedWith);
+      nestedViewerId = granteeId;
       await prisma.share.create({
         data: {
           nodeId: nestedId,
@@ -524,6 +555,7 @@ export async function seedTree(app: TestApp, spec: SeedSpec): Promise<SeedResult
 
   if (spec.shareRootWith) {
     const granteeId = await ensureTestUser(prisma, app, spec.shareRootWith);
+    viewerId = granteeId;
     await prisma.share.create({
       data: {
         nodeId: rootId,
@@ -563,5 +595,7 @@ export async function seedTree(app: TestApp, spec: SeedSpec): Promise<SeedResult
     nestedChild,
     fileId,
     viewerToken,
+    viewerId,
+    nestedViewerId,
   };
 }

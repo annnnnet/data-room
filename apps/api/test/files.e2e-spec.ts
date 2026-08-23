@@ -196,10 +196,10 @@ describe('files', () => {
   });
 
   it('gives a viewer a download URL but not an upload URL', async () => {
-    const { root, fileId } = await seedTree(app, { files: ['msa.pdf'], shareRootWith: 'u2' });
-    await app.asUser('u2').get(`/api/files/${fileId}/download-url`).expect(200);
+    const { root, fileId, viewerId } = await seedTree(app, { files: ['msa.pdf'], shareRootWith: 'u2' });
+    await app.asUser(viewerId!).get(`/api/files/${fileId}/download-url`).expect(200);
     const res = await app
-      .asUser('u2')
+      .asUser(viewerId!)
       .post('/api/files/upload-url')
       .send({ parentId: root, name: 'x.pdf', sizeBytes: 1, mimeType: 'application/pdf' })
       .expect(403);
@@ -210,7 +210,7 @@ describe('files', () => {
     const seed = await seedTree(app, { files: ['msa.pdf'], shareRootWith: 'u2' });
     const { body } = await upload(seed.root, 'other.pdf').expect(201);
     const res = await app
-      .asUser('u2')
+      .asUser(seed.viewerId!)
       .post(`/api/files/${body.nodeId}/complete`)
       .send({ versionId: body.versionId });
     expect(res.status).toBe(403);
@@ -218,8 +218,8 @@ describe('files', () => {
   });
 
   it('refuses a viewer restoring a version', async () => {
-    const { fileId } = await seedTree(app, { files: ['msa.pdf'], versions: 2, shareRootWith: 'u2' });
-    const res = await app.asUser('u2').post(`/api/files/${fileId}/versions/1/restore`);
+    const { fileId, viewerId } = await seedTree(app, { files: ['msa.pdf'], versions: 2, shareRootWith: 'u2' });
+    const res = await app.asUser(viewerId!).post(`/api/files/${fileId}/versions/1/restore`);
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('FORBIDDEN');
   });

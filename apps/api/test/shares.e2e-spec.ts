@@ -171,11 +171,11 @@ describe('sharing', () => {
   });
 
   it('lets a non-owner viewer neither list nor create shares', async () => {
-    const { root } = await seedTree(app, { shareRootWith: 'u2' });
-    const res = await app.asUser('u2').get(`/api/nodes/${root}/shares`).expect(403);
+    const { root, viewerId } = await seedTree(app, { shareRootWith: 'u2' });
+    const res = await app.asUser(viewerId!).get(`/api/nodes/${root}/shares`).expect(403);
     expect(res.body.code).toBe('FORBIDDEN');
     const res2 = await app
-      .asUser('u2')
+      .asUser(viewerId!)
       .post(`/api/nodes/${root}/shares`)
       .send({ kind: 'LINK' })
       .expect(403);
