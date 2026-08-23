@@ -10,7 +10,7 @@ const chain = [
 
 describe('Breadcrumbs', () => {
   it('renders ancestors as links and the current folder as plain text', () => {
-    render(<Breadcrumbs roomId="room-1" breadcrumbs={chain} />);
+    render(<Breadcrumbs basePath="/r/room-1/f" breadcrumbs={chain} />);
 
     const rootLink = screen.getByRole('link', { name: 'Room Root' });
     expect(rootLink).toHaveAttribute('href', '/r/room-1/f/root');
@@ -29,7 +29,7 @@ describe('Breadcrumbs', () => {
   });
 
   it('renders nothing for an empty chain', () => {
-    const { container } = render(<Breadcrumbs roomId="room-1" breadcrumbs={[]} />);
+    const { container } = render(<Breadcrumbs basePath="/r/room-1/f" breadcrumbs={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
 });

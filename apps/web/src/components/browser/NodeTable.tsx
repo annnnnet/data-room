@@ -11,12 +11,12 @@ import { TableSkeleton } from '@/components/states/TableSkeleton';
 import { NodeRow } from './NodeRow';
 
 export function NodeTable({
-  roomId,
+  basePath,
   parentId,
   readOnly,
   root,
 }: {
-  roomId: string;
+  basePath: string;
   parentId: string;
   readOnly: boolean;
   root: { id: string; name: string };
@@ -92,7 +92,7 @@ export function NodeTable({
             <NodeRow
               key={node.id}
               node={node}
-              roomId={roomId}
+              basePath={basePath}
               parentId={parentId}
               readOnly={readOnly}
               root={root}

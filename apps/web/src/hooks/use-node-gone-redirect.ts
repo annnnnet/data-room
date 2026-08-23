@@ -12,18 +12,22 @@ export type GoneRedirectState = 'checking' | 'redirecting';
 /**
  * On `NODE_GONE`, walks outward through the last-known breadcrumb trail
  * (nearest ancestor first) probing each with a real request until one
- * still resolves, then toasts and redirects there. Falls back to the data
- * room root when nothing in the trail survives (or nothing was cached at
- * all — e.g. a direct link to an already-deleted node); the room route
- * has its own terminal "not found" state, and the always-visible "Data
- * rooms" link is the last resort if even that fails.
+ * still resolves, then toasts and redirects there. Falls back to `basePath`
+ * alone (no id) when nothing in the trail survives (or nothing was cached
+ * at all — e.g. a direct link to an already-deleted node); that route has
+ * its own terminal "not found" state as a last resort.
+ *
+ * `basePath` is the folder route prefix to redirect within — `/r/{roomId}/f`
+ * for the owner view, `/s/{token}/f` for a share. `lastKnown.breadcrumbs`
+ * is expected to already be trimmed to the share root where one applies
+ * (see `FolderBrowser`), so the walk can never climb above it.
  */
 export function useNodeGoneRedirect({
-  roomId,
+  basePath,
   active,
   lastKnown,
 }: {
-  roomId: string;
+  basePath: string;
   active: boolean;
   lastKnown: NodeDetail | undefined;
 }): GoneRedirectState {
@@ -65,13 +69,13 @@ export function useNodeGoneRedirect({
 
       toast.add({ title: 'This folder was deleted by the owner', type: 'error' });
       setState('redirecting');
-      router.replace(survivorId ? `/r/${roomId}/f/${survivorId}` : `/r/${roomId}/f`);
+      router.replace(survivorId ? `${basePath}/${survivorId}` : basePath);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [active, lastKnown, roomId, router]);
+  }, [active, lastKnown, basePath, router]);
 
   return state;
 }

@@ -12,21 +12,39 @@ import { UploadDropzone } from '@/components/upload/UploadDropzone';
 import { Breadcrumbs } from './Breadcrumbs';
 import { Toolbar } from './Toolbar';
 import { NodeTable } from './NodeTable';
+import { trimBreadcrumbsToRoot } from './breadcrumb-utils';
 
 /**
- * The folder browser. Renders the owner view (mutating controls shown) and,
- * unchanged, the public share view in a later task (`readOnly`, mutating
- * controls not rendered at all).
+ * The folder browser. Renders the owner view (mutating controls shown,
+ * `roomId` set) and the public share view (`readOnly`, `token` set instead
+ * of `roomId`) with the same component — `readOnly` alone strips the
+ * toolbar, row actions, dropzone, and Share button.
+ *
+ * A share is reached at `/s/[token]` (and `/s/[token]/f/[...nodeId]` when
+ * browsing into a subfolder), never `/r/[roomId]/...` — so links this
+ * component renders must point wherever the current route actually lives.
+ * `shareRootId`, when set, also trims the breadcrumb chain (and bounds the
+ * deleted-ancestor walk below) to that node: a link recipient given
+ * "Contracts" must never see "Acme Acquisition › Legal" above it, since the
+ * folder structure itself is sensitive in a due-diligence product.
  */
 export function FolderBrowser({
   roomId,
+  token,
   nodeId,
   readOnly = false,
+  banner,
+  shareRootId,
 }: {
-  roomId: string;
+  roomId?: string;
+  token?: string;
   nodeId: string;
   readOnly?: boolean;
+  banner?: string;
+  shareRootId?: string;
 }) {
+  const basePath = token ? `/s/${token}/f` : `/r/${roomId}/f`;
+
   const detail = useQuery({
     queryKey: ['node', nodeId],
     queryFn: () => api.get<NodeDetail>(`/api/nodes/${nodeId}`),
@@ -39,10 +57,24 @@ export function FolderBrowser({
 
   const isGone =
     detail.isError && detail.error instanceof ApiError && detail.error.code === 'NODE_GONE';
+
+  // Trimmed before it ever reaches the ancestor walk, not just the display —
+  // so a deleted-ancestor probe in a share can't climb past the share root
+  // either.
+  const lastKnownTrimmed =
+    isGone && detail.data
+      ? {
+          ...detail.data,
+          breadcrumbs: shareRootId
+            ? trimBreadcrumbsToRoot(detail.data.breadcrumbs, shareRootId)
+            : detail.data.breadcrumbs,
+        }
+      : undefined;
+
   const goneState = useNodeGoneRedirect({
-    roomId,
+    basePath,
     active: isGone,
-    lastKnown: isGone ? detail.data : undefined,
+    lastKnown: lastKnownTrimmed,
   });
 
   useDocumentTitle(!isGone ? detail.data?.name : undefined);
@@ -82,28 +114,36 @@ export function FolderBrowser({
   }
 
   const node = detail.data;
+  const breadcrumbs = shareRootId
+    ? trimBreadcrumbsToRoot(node.breadcrumbs, shareRootId)
+    : node.breadcrumbs;
 
   return (
     <UploadDropzone parentId={nodeId} readOnly={readOnly}>
       <div className="flex min-h-0 flex-1 flex-col gap-4">
+        {banner && (
+          <div className="rounded-lg border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+            {banner}
+          </div>
+        )}
         <div
           className={`flex flex-wrap items-center justify-between gap-3 transition-opacity ${
             detail.isFetching ? 'opacity-70' : ''
           }`}
         >
-          <Breadcrumbs roomId={roomId} breadcrumbs={node.breadcrumbs} />
+          <Breadcrumbs basePath={basePath} breadcrumbs={breadcrumbs} />
           {/* `nodeId`, not `node.id`: the folder being viewed is known from the
               route immediately, so the toolbar and table don't wait on this
               query — they mount (and, for the table, show their own loading
               treatment) right away instead of blanking with the rest of the
               page. */}
-          <Toolbar parentId={nodeId} readOnly={readOnly} />
+          <Toolbar parentId={nodeId} nodeName={node.name} readOnly={readOnly} />
         </div>
         <NodeTable
-          roomId={roomId}
+          basePath={basePath}
           parentId={nodeId}
           readOnly={readOnly}
-          root={node.breadcrumbs[0] ?? { id: nodeId, name: node.name }}
+          root={breadcrumbs[0] ?? { id: nodeId, name: node.name }}
         />
       </div>
     </UploadDropzone>

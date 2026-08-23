@@ -12,13 +12,13 @@ import { NodeRowActions } from './NodeRowActions';
 
 export function NodeRow({
   node,
-  roomId,
+  basePath,
   parentId,
   readOnly,
   root,
 }: {
   node: PendingNode;
-  roomId: string;
+  basePath: string;
   parentId: string;
   readOnly: boolean;
   root: { id: string; name: string };
@@ -40,7 +40,7 @@ export function NodeRow({
           <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           {node.type === 'FOLDER' ? (
             <Link
-              href={`/r/${roomId}/f/${node.id}`}
+              href={`${basePath}/${node.id}`}
               className="truncate rounded-sm text-sm font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
               title={node.name}
             >

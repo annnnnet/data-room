@@ -31,8 +31,12 @@ export type { Crumb };
  * whole row scrolls within its own container rather than the caps ever
  * being able to push the page wider than the viewport — two items at
  * their `sm`-and-up caps alone would exceed a 375px screen.
+ *
+ * `basePath` is the folder route prefix each ancestor links under (e.g.
+ * `/r/room-1/f` for the owner view, `/s/token/f` for a share) — the caller
+ * decides it so this component doesn't need to know which route it's in.
  */
-export function Breadcrumbs({ roomId, breadcrumbs }: { roomId: string; breadcrumbs: Crumb[] }) {
+export function Breadcrumbs({ basePath, breadcrumbs }: { basePath: string; breadcrumbs: Crumb[] }) {
   const { first, middle, visible, current, collapsed } = buildBreadcrumbLayout(breadcrumbs);
   if (!current) return null;
 
@@ -47,7 +51,7 @@ export function Breadcrumbs({ roomId, breadcrumbs }: { roomId: string; breadcrum
             <>
               <BreadcrumbItem className="min-w-0">
                 <BreadcrumbLink
-                  render={<Link href={`/r/${roomId}/f/${first.id}`} />}
+                  render={<Link href={`${basePath}/${first.id}`} />}
                   className={`${ancestorMaxWidth} truncate`}
                   title={first.name}
                 >
@@ -71,7 +75,7 @@ export function Breadcrumbs({ roomId, breadcrumbs }: { roomId: string; breadcrum
                     {middle.map((crumb) => (
                       <DropdownMenuItem
                         key={crumb.id}
-                        render={<Link href={`/r/${roomId}/f/${crumb.id}`} />}
+                        render={<Link href={`${basePath}/${crumb.id}`} />}
                       >
                         {crumb.name}
                       </DropdownMenuItem>
@@ -90,7 +94,7 @@ export function Breadcrumbs({ roomId, breadcrumbs }: { roomId: string; breadcrum
             <Fragment key={crumb.id}>
               <BreadcrumbItem className="min-w-0">
                 <BreadcrumbLink
-                  render={<Link href={`/r/${roomId}/f/${crumb.id}`} />}
+                  render={<Link href={`${basePath}/${crumb.id}`} />}
                   className={`${ancestorMaxWidth} truncate`}
                   title={crumb.name}
                 >

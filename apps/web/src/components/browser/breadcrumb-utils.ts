@@ -18,6 +18,23 @@ export type BreadcrumbLayout = {
  * (and never a link), and everything in between either shown inline or,
  * past `threshold` total crumbs, collapsed into an overflow menu.
  */
+/**
+ * Cuts a root-to-current breadcrumb chain down to start at `rootId` — used
+ * by the public share view so a link recipient given "Contracts" never sees
+ * "Acme Acquisition › Legal" above it. In a due-diligence product the folder
+ * structure itself is sensitive, so everything above the share boundary is
+ * simply not in the array Breadcrumbs (or the deleted-ancestor walk) ever
+ * sees, not just hidden by styling.
+ *
+ * Falls back to the untrimmed chain if `rootId` isn't present — that would
+ * mean the current node is outside the shared subtree, which the API's
+ * access check should already have prevented.
+ */
+export function trimBreadcrumbsToRoot(breadcrumbs: Crumb[], rootId: string): Crumb[] {
+  const index = breadcrumbs.findIndex((c) => c.id === rootId);
+  return index === -1 ? breadcrumbs : breadcrumbs.slice(index);
+}
+
 export function buildBreadcrumbLayout(breadcrumbs: Crumb[], threshold = 4): BreadcrumbLayout {
   if (breadcrumbs.length === 0) {
     return { first: null, middle: [], visible: [], current: null, collapsed: false };

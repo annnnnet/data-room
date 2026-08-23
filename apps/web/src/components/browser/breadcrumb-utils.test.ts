@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildBreadcrumbLayout, type Crumb } from './breadcrumb-utils';
+import { buildBreadcrumbLayout, trimBreadcrumbsToRoot, type Crumb } from './breadcrumb-utils';
 
 const crumb = (id: string): Crumb => ({ id, name: `Folder ${id}` });
 

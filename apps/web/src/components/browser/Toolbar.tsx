@@ -1,26 +1,36 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { FolderPlus, Upload } from 'lucide-react';
+import { FolderPlus, Share2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { NewFolderDialog } from '@/components/dialogs/NewFolderDialog';
+import { ShareDialog } from '@/components/share/ShareDialog';
 import { useUploadContext } from '@/components/upload/UploadProvider';
 import { isPdfFile, rejectionMessage } from '@/components/upload/pdf-filter';
 import { toast } from '@/components/ui/toast';
 
 /**
- * Search and share still belong to later tasks (they need real flows — a
- * results list, a link/permission form). Upload now ships for real: the
- * button here just feeds picked files into the same queue the dropzone
- * drives, via `UploadDropzone`'s context. Hidden entirely in `readOnly` —
- * there's nothing left to show.
+ * Search still belongs to a later task (it needs a real results list).
+ * Upload and Share ship for real: upload feeds picked files into the same
+ * queue the dropzone drives, via `UploadDropzone`'s context; Share opens the
+ * link/people dialog on the folder currently being viewed. Hidden entirely
+ * in `readOnly` — there's nothing left to show, and sharing is owner-only.
  */
-export function Toolbar({ parentId, readOnly }: { parentId: string; readOnly: boolean }) {
+export function Toolbar({
+  parentId,
+  nodeName,
+  readOnly,
+}: {
+  parentId: string;
+  nodeName: string;
+  readOnly: boolean;
+}) {
   if (readOnly) return null;
   return (
     <div className="flex items-center justify-end gap-2">
       <UploadButton parentId={parentId} />
       <NewFolderButton parentId={parentId} />
+      <ShareButton nodeId={parentId} nodeName={nodeName} />
     </div>
   );
 }
@@ -70,6 +80,20 @@ function NewFolderButton({ parentId }: { parentId: string }) {
         New folder
       </Button>
       <NewFolderDialog open={open} onOpenChange={setOpen} parentId={parentId} />
+    </>
+  );
+}
+
+function ShareButton({ nodeId, nodeName }: { nodeId: string; nodeName: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <Share2 className="size-4" aria-hidden="true" />
+        Share
+      </Button>
+      <ShareDialog node={{ id: nodeId, name: nodeName }} open={open} onOpenChange={setOpen} />
     </>
   );
 }
