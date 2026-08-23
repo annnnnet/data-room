@@ -1,0 +1,77 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import type { NodeDetail } from '@data-room/shared';
+import { ApiError, api } from '@/lib/api';
+import { toast } from '@/components/ui/toast';
+import { ancestorCandidates } from '@/components/browser/ancestor-walk';
+
+export type GoneRedirectState = 'checking' | 'redirecting';
+
+/**
+ * On `NODE_GONE`, walks outward through the last-known breadcrumb trail
+ * (nearest ancestor first) probing each with a real request until one
+ * still resolves, then toasts and redirects there. Falls back to the data
+ * room root when nothing in the trail survives (or nothing was cached at
+ * all — e.g. a direct link to an already-deleted node); the room route
+ * has its own terminal "not found" state, and the always-visible "Data
+ * rooms" link is the last resort if even that fails.
+ */
+export function useNodeGoneRedirect({
+  roomId,
+  active,
+  lastKnown,
+}: {
+  roomId: string;
+  active: boolean;
+  lastKnown: NodeDetail | undefined;
+}): GoneRedirectState {
+  const router = useRouter();
+  const [state, setState] = useState<GoneRedirectState>('checking');
+  const handledFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!active) {
+      handledFor.current = null;
+      return;
+    }
+
+    const marker = lastKnown?.id ?? 'unknown';
+    if (handledFor.current === marker) return; // already walking/walked for this occurrence
+    handledFor.current = marker;
+
+    let cancelled = false;
+    setState('checking');
+
+    (async () => {
+      const candidates = lastKnown ? ancestorCandidates(lastKnown.breadcrumbs) : [];
+      let survivorId: string | null = null;
+
+      for (const id of candidates) {
+        try {
+          await api.get(`/api/nodes/${id}`);
+          survivorId = id;
+          break;
+        } catch (err) {
+          if (err instanceof ApiError && (err.code === 'NODE_GONE' || err.status === 404)) {
+            continue; // this ancestor is gone too — keep walking outward
+          }
+          break; // an unrelated failure — stop probing, fall back to the room root
+        }
+      }
+
+      if (cancelled) return;
+
+      toast.add({ title: 'This folder was deleted by the owner', type: 'error' });
+      setState('redirecting');
+      router.replace(survivorId ? `/r/${roomId}/f/${survivorId}` : `/r/${roomId}/f`);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [active, lastKnown, roomId, router]);
+
+  return state;
+}

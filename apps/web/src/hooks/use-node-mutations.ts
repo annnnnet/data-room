@@ -2,8 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { NodeDto } from '@data-room/shared';
 import { api, ApiError } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
-
-type Pages = { pages: { items: NodeDto[]; nextCursor: string | null }[] };
+import { movePatch, removePatch, renamePatch, type Pages } from './node-mutation-patches';
 
 /**
  * Rename/move/delete are optimistic against the `['children', parentId]`
@@ -37,27 +36,18 @@ export function useNodeMutations(parentId: string) {
   const rename = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) =>
       api.patch<NodeDto>(`/api/nodes/${id}`, { name }),
-    ...optimistic<{ id: string; name: string }>((pages, v) => ({
-      pages: pages.pages.map((p) => ({
-        ...p,
-        items: p.items.map((n) => (n.id === v.id ? { ...n, name: v.name } : n)),
-      })),
-    })),
+    ...optimistic<{ id: string; name: string }>(renamePatch),
   });
 
   const remove = useMutation({
     mutationFn: ({ id }: { id: string }) => api.del(`/api/nodes/${id}`),
-    ...optimistic<{ id: string }>((pages, v) => ({
-      pages: pages.pages.map((p) => ({ ...p, items: p.items.filter((n) => n.id !== v.id) })),
-    })),
+    ...optimistic<{ id: string }>(removePatch),
   });
 
   const move = useMutation({
     mutationFn: ({ id, parentId: dest }: { id: string; parentId: string }) =>
       api.patch<NodeDto>(`/api/nodes/${id}`, { parentId: dest }),
-    ...optimistic<{ id: string; parentId: string }>((pages, v) => ({
-      pages: pages.pages.map((p) => ({ ...p, items: p.items.filter((n) => n.id !== v.id) })),
-    })),
+    ...optimistic<{ id: string; parentId: string }>(movePatch),
   });
 
   // No optimistic insert (the server assigns the id) and no toast on
