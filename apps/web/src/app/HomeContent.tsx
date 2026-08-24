@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { DataRoomCard } from '@/components/rooms/DataRoomCard';
 import { NewDataRoomDialog } from '@/components/rooms/NewDataRoomDialog';
+import { UserMenu } from '@/components/nav/UserMenu';
 import { EmptyState } from '@/components/states/EmptyState';
 import { ErrorState } from '@/components/states/ErrorState';
 import { PageSpinner } from '@/components/states/PageSpinner';
@@ -63,11 +64,11 @@ export function HomeContent() {
       <header className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Data rooms</h1>
-          <p className="text-sm text-muted-foreground">
-            Signed in as {user.email}
-          </p>
         </div>
-        <NewDataRoomDialog />
+        <div className="flex items-center gap-2">
+          <NewDataRoomDialog />
+          <UserMenu />
+        </div>
       </header>
 
       {isPending && <TableSkeleton rows={6} label="Loading data rooms" />}

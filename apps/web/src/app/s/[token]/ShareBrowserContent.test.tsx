@@ -3,6 +3,10 @@ import { render, screen, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ShareBrowserContent } from './ShareBrowserContent';
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
+
 vi.mock('@/lib/api', () => {
   class ApiError extends Error {
     code: string;
@@ -84,5 +88,43 @@ describe('ShareBrowserContent failure states', () => {
     expect(
       screen.getByText(/The owner removed it. Ask them for a new link\./),
     ).toBeInTheDocument();
+  });
+
+  it('never renders a sign-out control or a signed-in identity — the visitor is anonymous', async () => {
+    const { api } = await import('@/lib/api');
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.startsWith('/api/shares/context')) {
+        return Promise.resolve({
+          rootNodeId: 'node-1',
+          nodeName: 'NDA.pdf',
+          dataRoomName: 'Acme Diligence',
+        });
+      }
+      if (url.startsWith('/api/nodes/')) {
+        return Promise.resolve({
+          id: 'node-1',
+          dataRoomId: 'room-1',
+          parentId: null,
+          type: 'FILE',
+          name: 'NDA.pdf',
+          updatedAt: new Date(0).toISOString(),
+          sizeBytes: 2048,
+          mimeType: null,
+          versionCount: 1,
+          breadcrumbs: [],
+          myRole: 'VIEWER',
+        });
+      }
+      return Promise.reject(new Error(`unexpected url ${url}`));
+    });
+
+    renderShare('file-token');
+
+    await screen.findByRole('heading', { name: 'NDA.pdf' });
+
+    expect(screen.queryByRole('menuitem', { name: /sign out/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/sign out/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/signed in as/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument();
   });
 });

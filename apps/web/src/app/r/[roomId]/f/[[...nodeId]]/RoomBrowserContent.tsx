@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth';
 import { PageSpinner } from '@/components/states/PageSpinner';
 import { ErrorState } from '@/components/states/ErrorState';
 import { FolderBrowser } from '@/components/browser/FolderBrowser';
+import { UserMenu } from '@/components/nav/UserMenu';
 
 /**
  * The URL only ever carries a node id when the visitor has navigated into a
@@ -65,13 +66,16 @@ export function RoomBrowserContent({ roomId, nodeId }: { roomId: string; nodeId:
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 px-4 py-6 sm:px-6">
-      <Link
-        href="/"
-        className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeft className="size-3.5" aria-hidden="true" />
-        Data rooms
-      </Link>
+      <div className="flex items-center justify-between gap-4">
+        <Link
+          href="/"
+          className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden="true" />
+          Data rooms
+        </Link>
+        <UserMenu />
+      </div>
       {body}
     </div>
   );
