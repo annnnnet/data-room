@@ -1,7 +1,19 @@
 import type { ApiErrorBody, ErrorCode } from '@data-room/shared';
 import { supabase } from './supabase';
 
-const BASE = process.env.NEXT_PUBLIC_API_URL!;
+// NEXT_PUBLIC_* values are inlined at build time, so a missing one cannot be
+// recovered at runtime — and left unchecked it produces requests to
+// `undefined/api/...`, which resolve against the web origin and 404. The app
+// then renders perfectly while every call fails, which reads as a broken
+// product rather than a misconfigured deploy. Fail loudly instead.
+const BASE = process.env.NEXT_PUBLIC_API_URL;
+if (!BASE) {
+  throw new Error(
+    'NEXT_PUBLIC_API_URL is not set. Set it to the API origin (no trailing ' +
+      'slash, no /api suffix) and rebuild — it is baked in at build time, so ' +
+      'changing the variable without redeploying has no effect.',
+  );
+}
 
 export class ApiError extends Error {
   constructor(

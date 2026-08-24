@@ -25,7 +25,12 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'off',
   },
-  webServer: [
+  // Against a deployed URL there is nothing to boot — starting local servers
+  // would also mean the test silently exercised localhost instead of
+  // production, which is the one thing a deployment check must not do.
+  webServer: process.env.E2E_WEB_URL
+    ? undefined
+    : [
     {
       command: 'pnpm --filter @data-room/api start:dev',
       cwd: '../..',
