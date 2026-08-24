@@ -11,16 +11,20 @@ Create a new Railway service from this GitHub repo and set:
 |---|---|
 | Root directory | `/` (**repo root** — not `apps/api`) |
 | Dockerfile path | `apps/api/Dockerfile` |
-| Start command | `node dist/src/main.js` (already set in `apps/api/railway.json`) |
-| Release command | `node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma` (already set in `apps/api/railway.json`; runs before each deploy) |
+| Start command | `node dist/src/main.js` (already set in `railway.json`) |
+| Release command | `node_modules/.bin/prisma migrate deploy --schema prisma/schema.prisma` (already set in `railway.json`; runs before each deploy) |
 
 The root directory must be the monorepo root because the Dockerfile needs
 `pnpm-workspace.yaml`, the root lockfile, and `packages/shared` to resolve
 the pnpm workspace — `apps/api` alone is not a buildable context.
 
-If Railway is pointed at `apps/api/railway.json` directly (rather than
-auto-detecting it from the root), no extra configuration is required beyond
-the root directory and Dockerfile path above.
+`railway.json` lives at the **repo root**, not in `apps/api`. Railway reads
+its config file from the top of the service's root directory, so a
+`railway.json` inside `apps/api` is silently ignored when the root directory
+is `/` — Railway then falls back to its Railpack auto-detector, which finds
+a 3-package pnpm workspace, cannot tell which package to run, and fails the
+build with "No start command detected". That failure mode looks like a
+missing start script; the actual cause is a config file Railway never read.
 
 ## Environment variables
 
