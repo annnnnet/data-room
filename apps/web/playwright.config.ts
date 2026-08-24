@@ -2,10 +2,13 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Smoke-test config for the real dev servers (web on :3000, API on :4000).
- * This intentionally does NOT start the servers itself — `pnpm dev` (or an
- * already-running dev session) is expected to be up, same as a human
- * clicking around the app. `webServer` is left unset so the test never
- * silently boots a second copy of Next on a random port.
+ *
+ * `webServer` uses `reuseExistingServer`, so an already-running `pnpm dev`
+ * session is reused as-is and nothing duplicate is booted; on a fresh clone
+ * with nothing running, Playwright starts both itself. Without this, the
+ * only symptom of "you forgot to start the servers" is a bare
+ * ERR_CONNECTION_REFUSED, which is a poor first run for anyone reviewing
+ * this repo.
  */
 export default defineConfig({
   testDir: './e2e',
@@ -22,6 +25,27 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'off',
   },
+  webServer: [
+    {
+      command: 'pnpm --filter @data-room/api start:dev',
+      cwd: '../..',
+      url: 'http://localhost:4000/api/data-rooms',
+      // The API answers 401 unauthenticated — that still proves it is up.
+      ignoreHTTPSErrors: true,
+      reuseExistingServer: true,
+      timeout: 120_000,
+      stdout: 'ignore',
+      stderr: 'pipe',
+    },
+    {
+      command: 'pnpm dev',
+      url: 'http://localhost:3000/login',
+      reuseExistingServer: true,
+      timeout: 120_000,
+      stdout: 'ignore',
+      stderr: 'pipe',
+    },
+  ],
   projects: [
     {
       name: 'chromium',
