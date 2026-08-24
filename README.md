@@ -5,9 +5,12 @@ spirit of Google Drive/Dropbox/Box, where a Data Room is the top-level drive.
 Built as a take-home submission: NestJS API, Next.js frontend, Postgres +
 object storage + auth all on Supabase.
 
-- **Web app:** <!-- DEPLOYED_WEB_URL -->
-- **API:** <!-- DEPLOYED_API_URL --> (Swagger at `/docs`)
-- **Demo login:** <!-- DEMO_CREDENTIALS -->
+- **Web app:** https://data-room-web-vert.vercel.app
+- **API:** https://data-room-production-3b7f.up.railway.app (Swagger at `/docs`)
+- **Demo login:** `demo@dataroom.example` / `DataRoomDemo2026!`
+
+The demo account opens on a populated room (Project Falcon) with nested
+folders, PDFs, a file carrying two versions, and an active share link.
 
 ## Contents
 
@@ -22,18 +25,20 @@ object storage + auth all on Supabase.
 
 ## Screenshots
 
-Not included in this commit. The set captured during development was taken
-before a font-loading bug fix (`--font-sans` resolved to itself, so the whole
-app rendered in the browser's default serif font instead of Geist) and before
-a share-link regression was fixed, so every one of them misrepresents the
-current UI in some way — wrong typeface, a mid-dialog blur, or a broken
-"Not found" state on a feature that now works. Shipping them would be
-misleading rather than helpful.
+Captured against the deployed application.
 
-Once the app is deployed (see placeholders above), retaking a small set —
-folder browser, an upload in progress, the share dialog, the public link
-view — against production is the next step; they'll be committed to
-`docs/screenshots/` and linked here.
+| | |
+|---|---|
+| ![Folder browser](docs/screenshots/01-folder-browser.png) | ![Upload in progress](docs/screenshots/02-upload-in-progress.png) |
+| Folder browser — breadcrumbs, keyset-paginated listing, folders before files | Upload queue — per-file progress, three concurrent, cancel and retry per row |
+| ![PDF viewer](docs/screenshots/03-pdf-viewer.png) | ![Version history](docs/screenshots/04-version-history.png) |
+| PDF viewer — inline preview from a short-lived signed storage URL | Version history — every upload of the same name kept, restore is additive |
+| ![Share dialog](docs/screenshots/05-share-dialog.png) | ![Public share view](docs/screenshots/06-public-share-view.png) |
+| Sharing — public link or named users, with expiry and revocation | The public link as a recipient sees it: read-only, scoped to the shared folder |
+
+<img src="docs/screenshots/07-mobile-375.png" width="320" alt="Narrow viewport" />
+
+At 375px the table scrolls inside its own container rather than the page.
 
 ## Quick start
 
@@ -331,53 +336,43 @@ pnpm --filter web test:e2e
 
 ## Where AI was used
 
-This project was built with an AI agent workflow, end to end: a design spec
-was written up front (architecture, data model, API surface, work plan),
-then each task in that plan was implemented by a subagent and independently
-reviewed by a separate, adversarial reviewer agent before moving on.
-Security-critical protections (the access-control guard, the ownership
-checks in mutations) were mutation-tested — the reviewer would remove the
-protection, confirm the relevant test actually failed, then restore it —
-specifically to catch tests that assert nothing.
+This project was built with an AI-assisted workflow, and the process is
+described here because it shaped both the code and the test suite.
 
-That process caught real bugs, and I think a reviewer would want to know
-about them rather than have them papered over:
+A design spec was written first — architecture, data model, API surface,
+and a task breakdown. Each task was then implemented against that spec and
+independently reviewed before the next began, with the reviewer working
+from the diff and the requirements rather than from the implementer's
+account of them. Security-relevant protections were mutation-tested: the
+protection was removed, the suite re-run to confirm the relevant test
+actually failed, then restored. Fixes were re-reviewed rather than assumed
+correct.
 
-- An **anonymous cross-tenant data leak** via an unvalidated context token
-  in the share-resolution path.
-- An **IDOR in the upload-complete endpoint** — the initial implementation
-  didn't verify the caller had rights to the version being completed.
-- An **authorization test suite that would have passed with authorization
-  removed entirely** — mutation-testing the guard is what surfaced this.
-- A **trigram search index that was silently never used** — Prisma's
-  `mode: 'insensitive'` compiles to `ILIKE`, but the index was built on
-  `lower(name)`; `EXPLAIN` showed a sequential scan at 70.6ms over 60k rows.
-  Rebuilding the index as an expression index matching what `ILIKE` actually
-  needs dropped that to a bitmap index scan at 2.3ms.
-- **Two separate bugs that made the app unable to boot at all**, while 162
-  Jest/Vitest tests passed — `packages/shared` was shipping raw TypeScript
-  that plain `node` can't `require`, and a provider was never exported from
-  its module so dependency injection failed outside the test harness's
-  guard overrides. Neither was visible to the test suite because Jest
-  transpiles TypeScript on the fly and every e2e test overrode the guard.
-  That's what motivated the dist-boot check and a `bootstrap.e2e-spec.ts`
-  with zero overrides.
+That process is why several of the following are in the repository rather
+than in production:
 
-What I (the human) decided versus what the agent produced: the scope,
-priorities, and stack choices in the design spec are mine — what ships vs.
-what's explicitly out of scope, the single-vendor Supabase rationale, the
-one-`Node`-table and materialized-path decisions, and the target effort
-budget. The agent produced the implementation, the test suites, and the
-adversarial review passes against that spec, including catching the bugs
-listed above. I reviewed the diffs task by task rather than accepting a
-single large change at the end, and this README itself was drafted by an
-agent from the design spec and progress log, then fact-checked against the
-actual repo (running the test suites, reading the schema and source
-directly) rather than trusted from memory — dependency versions and test
-counts in earlier drafts of the plan turned out to be wrong (Prisma pinned
-to 6.19.3, not 5.x, because v7 drops `url`/`directUrl` from the datasource
-block; Next.js is 16.3.2, not 14) and were corrected against the code before
-writing them here.
+| Found | Detail |
+|---|---|
+| Anonymous cross-tenant disclosure | `GET /shares/context` without a token fell through Prisma's "undefined means omit this filter" behaviour and matched the first live share in the database, returning another tenant's node id and room name to an unauthenticated caller. |
+| IDOR on upload completion | `complete` verified ownership of the node but never that the version belonged to it, so an owner could point their own file at another tenant's stored blob. |
+| Authorization tests that asserted nothing | The `AccessService` suite mocked Prisma to return its fixture regardless of the `where` clause. Removing the principal filter entirely — granting every signed-in user access to every shared node — left all twelve tests green. |
+| An unused search index | Prisma's `mode: 'insensitive'` emits `ILIKE`, but the trigram index was built on `lower(name)`, which the planner cannot match. `EXPLAIN` showed a sequential scan at 70.6ms over 60k rows; a corrected index gives a bitmap index scan at 2.3ms. |
+| Two bugs that prevented the API from booting | `packages/shared` shipped raw TypeScript that plain Node cannot resolve, and `JwtVerifierService` was never exported from its module. Both were invisible to 162 passing tests, because Jest transpiles TypeScript on the fly and every e2e test overrode the guard whose dependency graph was broken. |
+| A crash on every folder row | `DeleteDialog` read `stats.data` unconditionally while its query was disabled, so any folder in a listing took the page down. Every existing test rendered that dialog open. |
+| The entire UI in the wrong typeface | `--font-sans` was defined in terms of itself, resolving to nothing, so the app fell back to the browser's serif default while the configured font loaded correctly and was never applied. |
+
+The recurring pattern is worth stating plainly: in almost every case the
+test environment differed from production in a way that hid the defect —
+Jest resolving TypeScript source where Node resolves a build, a mock
+ignoring the query it was meant to exercise, a dialog only ever rendered in
+its open state, a fresh query cache masking a warm-cache race. Passing
+tests were treated as necessary but not sufficient, which is why the suite
+includes a bootstrap test that compiles the real module graph with no
+overrides, a check that boots the built artifact, and a Playwright test
+that drives the deployed application.
+
+Test totals: 4 shared, 76 API unit, 89 API e2e, 147 web unit, plus the
+end-to-end smoke test and the build-artifact boot check.
 
 ## Known limitations
 
