@@ -83,7 +83,17 @@ export function useUpload() {
   const cancelledIds = useRef(new Set<string>());
 
   const invalidate = useCallback(
-    (parentId: string) => qc.invalidateQueries({ queryKey: ['children', parentId] }),
+    // `cancelQueries` first: if the folder's own mount fetch for
+    // `['children', parentId]` is still in flight when an upload finishes,
+    // `invalidateQueries`'s refetch would otherwise dedupe onto that
+    // already-in-flight promise (TanStack Query only starts a new fetch
+    // when the query is idle) and resolve with pre-upload data, leaving
+    // the just-uploaded file invisible until something else re-triggers
+    // the query. See the identical fix in `NewDataRoomDialog`.
+    async (parentId: string) => {
+      await qc.cancelQueries({ queryKey: ['children', parentId] });
+      qc.invalidateQueries({ queryKey: ['children', parentId] });
+    },
     [qc],
   );
 

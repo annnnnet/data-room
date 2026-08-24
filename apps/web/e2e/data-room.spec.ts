@@ -48,7 +48,20 @@ test('owner creates, uploads, shares; recipient sees read-only', async ({ page, 
 
   // Enter the folder so the upload and the share both target it.
   await page.getByRole('link', { name: 'Financials' }).click();
-  await page.waitForLoadState('networkidle');
+  // `networkidle` alone is not a reliable signal that the *new* folder's
+  // page has actually replaced the old one in the DOM: this route is a
+  // Next.js App Router navigation (server round trip for the RSC payload,
+  // not a same-tree client re-render), and that round trip can still be in
+  // flight for a while after the click even though nothing else on the
+  // page is generating network traffic in the interim — `networkidle` goes
+  // quiet in that gap and resolves early. Acting on `input[type=file]`
+  // right after that wait can therefore still hit the *previous* folder's
+  // dropzone input (same selector, stale `parentId` closure), silently
+  // uploading into the wrong folder. Waiting for "This folder is empty" —
+  // text unique to Financials actually having rendered, since it starts
+  // empty — anchors on the new page really being up before interacting
+  // with anything in it.
+  await expect(page.getByText('This folder is empty')).toBeVisible();
 
   // Two `input[type=file]` elements exist (the dropzone's hidden input and
   // the toolbar Upload button's) — `.first()` avoids Playwright's strict-mode

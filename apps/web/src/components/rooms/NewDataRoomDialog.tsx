@@ -27,7 +27,17 @@ export function NewDataRoomDialog() {
 
   const create = useMutation({
     mutationFn: (name: string) => api.post<DataRoomDto>('/api/data-rooms', { name }),
-    onSuccess: (room) => {
+    onSuccess: async (room) => {
+      // `invalidateQueries` alone can lose this race: if the list's own
+      // mount fetch is still in flight when this runs, TanStack Query
+      // dedupes the invalidated refetch onto that same in-flight promise
+      // (see `Query.fetch` — a fetch already underway is joined, not
+      // restarted, unless nothing is in flight) rather than issuing a new
+      // request, so the room this just created can silently fail to appear
+      // until something else re-triggers the query. Cancelling first
+      // aborts that stale in-flight fetch so the invalidated refetch is
+      // guaranteed to be a fresh request made after this mutation settled.
+      await queryClient.cancelQueries({ queryKey: ['data-rooms'] });
       queryClient.invalidateQueries({ queryKey: ['data-rooms'] });
       toast.add({ title: 'Data room created', description: room.name, type: 'success' });
       setOpen(false);

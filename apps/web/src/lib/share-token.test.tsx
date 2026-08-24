@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, cleanup, waitFor } from '@testing-library/react';
-import { useEffect } from 'react';
+import { StrictMode, useEffect } from 'react';
 
 // Only the Supabase client is stubbed — unrelated to the bug this test
 // proves fixed, and constructing a real client would throw in this test
@@ -99,6 +99,39 @@ describe('share token wiring end-to-end (CRITICAL-1 regression)', () => {
 
     const fetchSpy = mockFetchOk();
     await api.get('/api/nodes/some-other-id');
+
+    expect(headerFromFirstCall(fetchSpy)).toBe('the-real-token');
+  });
+
+  /**
+   * Regression coverage for the guest "Not found" bug: in development,
+   * React StrictMode mounts every effect, synchronously tears it down, then
+   * mounts it again — simulating an unmount/remount to catch effects that
+   * aren't safely re-runnable. `ShareTokenProvider`'s own cleanup nulls the
+   * token, and since (before this test's fix) the token was only ever armed
+   * in *render* — which StrictMode does not re-run for this synthetic
+   * cycle — the synthetic cleanup permanently wiped the token before any
+   * descendant's real request ever went out. `/api/shares/context` (which
+   * needs no token) still succeeded, making the resulting 404 on the very
+   * next request look like a server-side access bug rather than what it
+   * actually was: the client silently dropping its own credential. This
+   * test fails against that version and passes once the token is re-armed
+   * in the effect too, not just in render.
+   */
+  it('still carries the token after StrictMode double-invokes the mount effect', async () => {
+    const fetchSpy = mockFetchOk();
+
+    render(
+      <StrictMode>
+        <Providers>
+          <ShareTokenProvider token="the-real-token">
+            <FetchesOnMount path="/api/nodes/root-id" />
+          </ShareTokenProvider>
+        </Providers>
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
 
     expect(headerFromFirstCall(fetchSpy)).toBe('the-real-token');
   });

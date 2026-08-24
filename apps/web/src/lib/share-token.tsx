@@ -21,6 +21,22 @@ import { setShareToken } from './api';
  * child's mount effect in the same commit — already sees the real token.
  * `setShareToken` is a plain, idempotent assignment, so calling it again on
  * every render is harmless.
+ *
+ * Also re-armed at the top of the effect, not just in render: in
+ * development, React StrictMode synthetically mount → cleans up → re-mounts
+ * every effect once, to surface exactly this kind of unsafe assumption. The
+ * synthetic cleanup runs this component's own `() => setShareToken(null)`
+ * teardown, and since arming only ever happened in render (which StrictMode
+ * does *not* re-run for this cycle), the token was left permanently wiped
+ * before any descendant's real network request ever went out — a guest
+ * visiting a valid share link got a 404 on every follow-up request, even
+ * though `/api/shares/context` (which needs no token) had just succeeded.
+ * Re-arming here means the synthetic remount's own mount phase restores the
+ * token the synthetic cleanup just cleared, so the net effect of the
+ * mount → cleanup → mount cycle is a no-op, exactly as an idempotent effect
+ * is supposed to behave — and a genuine unmount (leaving the /s subtree)
+ * still nulls the token via the same cleanup, since no further mount
+ * follows it.
  */
 export function ShareTokenProvider({
   token,
@@ -32,8 +48,9 @@ export function ShareTokenProvider({
   setShareToken(token);
 
   useEffect(() => {
+    setShareToken(token);
     return () => setShareToken(null);
-  }, []);
+  }, [token]);
 
   return <>{children}</>;
 }
