@@ -52,11 +52,11 @@ export function DeleteDialog({
   const summary =
     node.type === 'FILE'
       ? 'This file and all of its versions will be permanently removed.'
-      : stats.isLoading
-        ? 'Checking what this folder contains…'
+      : stats.isSuccess
+        ? `${stats.data.fileCount} file(s) and ${stats.data.folderCount} folder(s) (${formatBytes(stats.data.totalBytes)}) will be permanently removed.`
         : stats.isError
           ? "Couldn't check what this folder contains."
-          : `${stats.data!.fileCount} file(s) and ${stats.data!.folderCount} folder(s) (${formatBytes(stats.data!.totalBytes)}) will be permanently removed.`;
+          : 'Checking what this folder contains…';
 
   const statsBlocking = node.type === 'FOLDER' && (stats.isLoading || stats.isError);
 

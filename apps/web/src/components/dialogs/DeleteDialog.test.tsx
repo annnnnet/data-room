@@ -138,6 +138,24 @@ describe('DeleteDialog', () => {
     expect(screen.getByText(/versions/i)).toBeInTheDocument();
   });
 
+  it('renders a FOLDER node while closed without throwing (regression: DeleteDialog is mounted per-row by NodeRowActions, and the disabled /stats query must never be read as if it succeeded)', async () => {
+    const { api } = await import('@/lib/api');
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    expect(() =>
+      render(
+        <QueryClientProvider client={queryClient}>
+          <DeleteDialog node={folderNode} parentId="parent-1" open={false} onOpenChange={vi.fn()} />
+        </QueryClientProvider>,
+      ),
+    ).not.toThrow();
+
+    // The /stats query is disabled while closed — it must not be fetched, and
+    // the component must not fall through to reading `stats.data!` as if the
+    // (never-started) query had succeeded.
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
   it('does not call /stats for a file node — only folders need the subtree check', () => {
     renderDialog(fileNode);
     // No call is made, but even a call would eventually be for the wrong

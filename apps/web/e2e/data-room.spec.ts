@@ -44,7 +44,7 @@ test('owner creates, uploads, shares; recipient sees read-only', async ({ page, 
   await page.getByRole('button', { name: 'New folder' }).click();
   await page.getByLabel('Name').fill('Financials');
   await page.getByRole('button', { name: 'Create' }).click();
-  await expect(page.getByRole('cell', { name: 'Financials' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Financials', exact: true })).toBeVisible();
 
   // Enter the folder so the upload and the share both target it.
   await page.getByRole('link', { name: 'Financials' }).click();
