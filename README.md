@@ -14,7 +14,6 @@ folders, PDFs, a file carrying two versions, and an active share link.
 
 ## Contents
 
-- [Screenshots](#screenshots)
 - [Quick start](#quick-start)
 - [Design decisions](#design-decisions)
 - [Data model / ERD](#data-model--erd)
@@ -23,22 +22,6 @@ folders, PDFs, a file carrying two versions, and an active share link.
 - [Where AI was used](#where-ai-was-used)
 - [Known limitations](#known-limitations)
 
-## Screenshots
-
-Captured against the deployed application.
-
-| | |
-|---|---|
-| ![Folder browser](docs/screenshots/01-folder-browser.png) | ![Upload in progress](docs/screenshots/02-upload-in-progress.png) |
-| Folder browser — breadcrumbs, keyset-paginated listing, folders before files | Upload queue — per-file progress, three concurrent, cancel and retry per row |
-| ![PDF viewer](docs/screenshots/03-pdf-viewer.png) | ![Version history](docs/screenshots/04-version-history.png) |
-| PDF viewer — inline preview from a short-lived signed storage URL | Version history — every upload of the same name kept, restore is additive |
-| ![Share dialog](docs/screenshots/05-share-dialog.png) | ![Public share view](docs/screenshots/06-public-share-view.png) |
-| Sharing — public link or named users, with expiry and revocation | The public link as a recipient sees it: read-only, scoped to the shared folder |
-
-<img src="docs/screenshots/07-mobile-375.png" width="320" alt="Narrow viewport" />
-
-At 375px the table scrolls inside its own container rather than the page.
 
 ## Quick start
 
@@ -384,8 +367,6 @@ end-to-end smoke test and the build-artifact boot check.
   (`Node.deletedAt`) but nothing in the UI lets an owner browse or undelete
   a removed node. (Restoring a *file version* is a separate, shipped
   feature — see Design decisions.)
-- **Google OAuth requires a configured client id** in the Supabase project;
-  without one, only email/password sign-in works.
 - **Version history is owner-only by design** — a share recipient, even
   with link access to a file, cannot see or restore prior versions.
 - **Single-region storage** — no redundancy or multi-region replication
